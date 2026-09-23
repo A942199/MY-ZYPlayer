@@ -347,6 +347,7 @@ export default {
       searchRunning: false,
       siteSearchCount: 0,
       infiniteHandlerCount: 0,
+      listGeneration: 0,
       // Toolbar
       showToolbar: false,
       selectedAreas: [],
@@ -443,9 +444,6 @@ export default {
     },
     siteSearchCount () {
       if (this.siteSearchCount === this.searchSites.length) this.searchRunning = false
-    },
-    site () {
-      this.siteClick(this.site.name)
     },
     searchContents: {
       handler (list) {
@@ -564,9 +562,13 @@ export default {
         columns.forEach(col => { col.filterable = true })
       }
     },
-    siteClick (siteName) {
+    async siteClick (siteName, allowFallback = false, attemptedKeys = []) {
+      const generation = ++this.listGeneration
       this.list = []
-      this.site = this.sites.find(x => x.name === siteName)
+      const target = this.sites.find(x => x.name === siteName)
+      if (!target) return
+      this.site = target
+      this.selectedSiteName = target.name
       if (this.searchGroup === '站内' && this.searchTxt) {
         this.searchEvent()
         return
@@ -575,18 +577,36 @@ export default {
       }
       this.showFind = false
       this.classList = []
-      if (FILM_DATA_CACHE[this.site.key]) {
-        this.classList = FILM_DATA_CACHE[this.site.key].classList
-        this.classClick(this.type.name)
-      } else {
-        this.getClass().then(res => {
-          this.classList = res
-          // cache classList data
+      try {
+        if (FILM_DATA_CACHE[this.site.key]) {
+          this.classList = FILM_DATA_CACHE[this.site.key].classList
+        } else {
+          this.classList = await this.getClass()
+          if (generation !== this.listGeneration) return
           FILM_DATA_CACHE[this.site.key] = {
             classList: this.classList
           }
-          this.classClick(this.type.name)
-        })
+        }
+        if (generation !== this.listGeneration) return
+        if (!this.classList.length) throw new Error('源未返回分类')
+        this.classClick(this.type.name)
+      } catch (error) {
+        if (generation !== this.listGeneration) return
+        console.error('加载源失败:', this.site.name, error)
+        this.list = []
+        this.filteredList = []
+        this.classList = []
+        this.type = {}
+        this.statusText = '源加载失败'
+        if (allowFallback) {
+          const attempted = attemptedKeys.concat(this.site.key)
+          const next = this.sites.find(site => !attempted.includes(site.key))
+          if (next) {
+            this.$message.warning(this.site.name + ' 加载失败，已自动切换到 ' + next.name)
+            return this.siteClick(next.name, true, attempted)
+          }
+        }
+        this.$message.error(this.site.name + ' 加载失败，请切换其他源')
       }
     },
     refreshClass () {
@@ -600,11 +620,16 @@ export default {
       })
     },
     classClick (className) {
+      const generation = ++this.listGeneration
       this.list = []
       this.type = this.classList.find(x => x.name === className)
       this.infiniteHandlerCount = 0
       if (!this.type) {
         this.type = this.classList[0]
+      }
+      if (!this.type) {
+        this.statusText = '暂无分类'
+        return
       }
       if (this.type.name.endsWith('剧')) this.selectedAreas = []
       const cacheKey = this.site.key + '@' + this.type.tid
@@ -616,6 +641,7 @@ export default {
         this.areas = FILM_DATA_CACHE[cacheKey].areas
       } else {
         zy.page(this.site.key, this.type.tid).then(res => {
+          if (generation !== this.listGeneration) return
           this.totalpagecount = res.pagecount
           this.pagecount = res.pagecount
           this.recordcount = res.recordcount
@@ -640,14 +666,16 @@ export default {
       })
     },
     containsClassFilterKeyword (name) {
+      const normalizedName = String(name || '').trim()
+      if (!normalizedName) return false
       let ret = false
       // 主分类过滤, 检测关键词是否包含分类名
       if (this.setting.excludeRootClasses) {
-        ret = this.setting.rootClassFilter?.some(v => v.includes(name))
+        ret = this.setting.rootClassFilter?.some(v => normalizedName.includes(v))
       }
       // 福利过滤,检测分类名是否包含关键词
       if (this.setting.excludeR18Films && !ret) {
-        ret = this.setting.r18ClassFilter?.some(v => name?.includes(v))
+        ret = this.setting.r18ClassFilter?.some(v => normalizedName.includes(v))
       }
       return ret
     },
@@ -657,6 +685,7 @@ export default {
     infiniteHandler ($state) {
       const key = this.site.key
       const typeTid = this.type.tid
+      const generation = this.listGeneration
       let page = this.pagecount
       if (this.toFlipPagecount()) {
         page = this.totalpagecount - this.pagecount + 1
@@ -672,7 +701,9 @@ export default {
       }
       const interval = this.setting.view === 'picture' ? 1200 : 300
       setTimeout(() => {
+        if (generation !== this.listGeneration || key !== this.site.key || typeTid !== this.type.tid) return
         zy.list(key, page, typeTid).then(res => {
+          if (generation !== this.listGeneration || key !== this.site.key || typeTid !== this.type.tid) return
           if (res) {
             this.pagecount -= 1
             const type = Object.prototype.toString.call(res)
@@ -704,6 +735,11 @@ export default {
               list: this.list
             }
           }
+        }).catch(error => {
+          if (generation !== this.listGeneration || key !== this.site.key || typeTid !== this.type.tid) return
+          console.error('加载列表失败:', this.site.name, error)
+          this.statusText = this.list.length ? ' ' : '源加载失败'
+          $state.complete()
         })
       }, (this.infiniteHandlerCount <= 1 ? 0 : this.infiniteHandlerCount - 1) * interval)
     },
@@ -870,9 +906,8 @@ export default {
         sites.all().then(res => {
           if (res) {
             this.sites = res.filter(item => item.isActive)
-            if (this.site === undefined || !this.sites.some(x => x.key === this.site.key)) {
-              this.site = this.sites[0]
-              this.selectedSiteName = this.sites[0].name
+            if (this.sites.length && (this.site === undefined || !this.sites.some(x => x.key === this.site.key))) {
+              this.siteClick(this.sites[0].name, true)
             }
           }
         })
@@ -887,9 +922,10 @@ export default {
           this.getDefaultSites()
         } else {
           this.sites = res.filter(item => item.isActive)
-          if (this.site === undefined || !this.sites.some(x => x.key === this.site.key)) {
-            this.site = this.sites[0]
-            this.selectedSiteName = this.sites[0].name
+          if (this.sites.length && (this.site === undefined || !this.sites.some(x => x.key === this.site.key))) {
+            this.siteClick(this.sites[0].name, true)
+          } else if (this.sites.length && !this.classList.length) {
+            this.siteClick(this.site.name, true)
           }
         }
         this.searchGroup = this.setting.searchGroup

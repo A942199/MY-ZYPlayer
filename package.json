@@ -9,6 +9,7 @@
     "test": "node tests/myvideo.test.js",
     "test:integration": "node tests/yuan-integration.js",
     "test:matrix": "node tests/yuan-matrix.js",
+    "test:e2e": "node tests/electron-e2e.js",
     "dev": "vue-cli-service electron:serve",
     "electron:build": "vue-cli-service electron:build",
     "electron:serve": "vue-cli-service electron:serve",

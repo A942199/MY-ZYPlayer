@@ -113,8 +113,12 @@ async function list (site, pg, tid) {
     page: pg
   }
   const result = (await runtimeCall(site, 'getCards', args)) || {}
-  pageState.set(site.key + '@' + String(tid) + '@' + String(pg), Number(result.over) === 1)
-  return (result.list || []).map(normalizeCard)
+  const list = result.list || []
+  pageState.set(
+    site.key + '@' + String(tid) + '@' + String(pg),
+    Number(result.over) === 1 || list.length === 0
+  )
+  return list.map(normalizeCard)
 }
 
 function isPageOver (siteKey, tid, pageNo) {
