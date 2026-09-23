@@ -531,7 +531,6 @@ export default {
     // this.getSites()
     this.getSetting()
     this.getShortcut()
-    this.checkUpdate()
     this.createContextMenu()
   }
 }

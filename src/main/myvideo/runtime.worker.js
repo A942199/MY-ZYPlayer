@@ -77,6 +77,15 @@ function compatibleJsonData (text) {
   return String(text || '')
 }
 
+function compatibleResponseHeaders (headers) {
+  const result = { ...(headers || {}) }
+  const setCookie = result['set-cookie']
+  if (setCookie) {
+    result['Set-Cookie'] = Array.isArray(setCookie) ? setCookie[0] : setCookie
+  }
+  return result
+}
+
 class NativeHttpClient {
   constructor () {
     this.cookies = new Map()
@@ -157,10 +166,12 @@ class NativeHttpClient {
             const decoded = decodeBody(Buffer.concat(chunks), res.headers['content-encoding'])
             const rawData = decoded.toString('utf8')
             const data = compatibleJsonData(rawData)
+            const responseHeaders = compatibleResponseHeaders(res.headers)
             resolve({
               status,
               statusCode: status,
-              headers: res.headers,
+              headers: responseHeaders,
+              respHeaders: responseHeaders,
               data,
               url: target.href
             })

@@ -1,4 +1,5 @@
 module.exports = {
+  publicPath: './',
   pages: {
     index: 'src/main.js'
   },
@@ -6,6 +7,11 @@ module.exports = {
     externals: {
       electron: 'commonjs2 electron'
     }
+  },
+  chainWebpack: config => {
+    config.module.rule('fonts').set('generator', {
+      filename: '[name].[hash:8][ext]'
+    })
   },
   pluginOptions: {
     electronBuilder: {

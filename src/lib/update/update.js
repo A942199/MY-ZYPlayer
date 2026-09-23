@@ -8,12 +8,18 @@ export function initUpdater (win = BrowserWindow) {
 
   // 主进程监听检查更新事件
   ipcMain.on('checkForUpdate', () => {
-    autoUpdater.checkForUpdates()
+    autoUpdater.checkForUpdates().catch(err => {
+      console.warn('[Updater] update check skipped:', err && err.message ? err.message : err)
+      if (win && !win.isDestroyed()) win.webContents.send('update-error', err)
+    })
   })
 
   // 主进程监听开始下载事件
   ipcMain.on('downloadUpdate', () => {
-    autoUpdater.downloadUpdate()
+    autoUpdater.downloadUpdate().catch(err => {
+      console.warn('[Updater] download failed:', err && err.message ? err.message : err)
+      if (win && !win.isDestroyed()) win.webContents.send('update-error', err)
+    })
   })
 
   // 主进程监听退出并安装事件
