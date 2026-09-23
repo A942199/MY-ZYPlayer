@@ -143,6 +143,10 @@ async function main () {
     assert(defaultState, 'Fresh profile Vue app did not become ready')
     assert(defaultState.filteredLen > 0, 'Fresh profile did not render any default-source cards')
     assert(defaultState.cards > 0, 'Fresh profile DOM did not render any cards')
+    const elementIconsLoaded = await evaluate(
+      "document.fonts ? document.fonts.check('16px element-icons') : true"
+    )
+    assert.strictEqual(elementIconsLoaded, true, 'Element UI icon font did not load')
 
     await evaluate(`(() => {
       const app = document.querySelector('#app').__vue__.$children[0]
@@ -226,6 +230,7 @@ async function main () {
     console.log(JSON.stringify({
       defaultSource: defaultState.site,
       defaultCards: defaultState.cards,
+      elementIconsLoaded,
       xingyaCards: xingyaState.cards,
       xingyaFirstCard: xingyaState.firstCard,
       criticalSourceCards,

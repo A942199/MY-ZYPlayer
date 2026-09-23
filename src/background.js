@@ -1,10 +1,10 @@
 'use strict'
 
 import { app, protocol, BrowserWindow, globalShortcut, ipcMain } from 'electron'
-import { createProtocol } from 'vue-cli-plugin-electron-builder/lib'
 import installExtension, { VUEJS_DEVTOOLS } from 'electron-devtools-installer'
 import { initUpdater } from './lib/update/update'
 const { registerMyVideoIpc, applyPlaybackHeaders } = require('./main/myvideo/runtime')
+const path = require('path')
 require('@electron/remote/main').initialize()
 
 const isDevelopment = process.env.NODE_ENV !== 'production'
@@ -19,6 +19,29 @@ app.commandLine.appendSwitch('--ignore-certificate-errors', 'true') // 忽略证
 let win
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'app', privileges: { secure: true, standard: true } }])
+
+function createAppProtocol () {
+  protocol.registerFileProtocol('app', (request, callback) => {
+    try {
+      const url = new URL(request.url)
+      let relativePath = decodeURI(url.pathname || '/')
+      if (url.hostname && url.hostname !== '.') {
+        relativePath = '/' + url.hostname + (relativePath === '/' ? '' : relativePath)
+      }
+      relativePath = relativePath.replace(/^[/\\]+/, '')
+      const root = path.resolve(__dirname)
+      const filePath = path.resolve(root, relativePath)
+      if (filePath !== root && !filePath.startsWith(root + path.sep)) {
+        callback({ error: -6 })
+        return
+      }
+      callback({ path: filePath })
+    } catch (error) {
+      console.error('[app protocol] failed:', request.url, error)
+      callback({ error: -6 })
+    }
+  })
+}
 
 function createWindow () {
   win = new BrowserWindow({
@@ -39,7 +62,7 @@ function createWindow () {
     win.loadURL(process.env.WEBPACK_DEV_SERVER_URL)
     if (!process.env.IS_TEST) win.webContents.openDevTools()
   } else {
-    createProtocol('app')
+    createAppProtocol()
     win.loadURL('app://./index.html')
   }
   
