@@ -8,14 +8,10 @@
       <Star v-show="view === 'Star'" />
       <History v-show="view === 'History'" />
       <Setting v-show="view === 'Setting'" />
-      <IPTV v-show="view === 'IPTV'" />
       <EditSites v-if="view === 'EditSites'"/>
     </div>
     <transition name="slide">
       <Detail v-if="detail.show"/>
-    </transition>
-    <transition name="slide">
-      <Share v-if="share.show"/>
     </transition>
   </div>
 </template>
@@ -86,17 +82,8 @@ export default {
     detail () {
       return this.$store.getters.getDetail
     },
-    share () {
-      return this.$store.getters.getShare
-    },
     setting () {
       return this.$store.getters.getSetting
-    },
-    editSites () {
-      return this.$store.getters.getEditSites
-    },
-    recommendation () {
-      return this.$store.getters.recommendation
     }
   },
   watch: {

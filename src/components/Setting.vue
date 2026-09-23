@@ -45,40 +45,6 @@
           左/右方向键:<input style="width:50px" type="number" v-model = "d.forwardTimeInSec" @change="updateSettingEvent">秒
         </div>
       </div>
-      <div class='site'>
-         <div class="title">第三方播放</div>
-         <div class="site-box">
-            <div class="zy-select">
-              <div class="vs-placeholder vs-noAfter" @click="selectLocalPlayer">选择本地播放器</div>
-            </div>
-            <div class="zy-select" @click = "show.editPlayerPath = true">
-              <div class="vs-placeholder vs-noAfter" v-show = "show.editPlayerPath == false">
-                <label>编辑</label>
-              </div>
-              <input class="zy-input" v-show = "show.editPlayerPath == true" v-model = "d.externalPlayer"
-                @blur= "updateSettingEvent"
-                @keyup.enter = "updateSettingEvent">
-            </div>
-          </div>
-      </div>
-      <div class="site">
-        <div class="title">直播源管理</div>
-        <div class="site-box">
-          <div class="zy-select">
-            <div class="vs-placeholder vs-noAfter" @click="view = 'IPTV'">编辑直播源</div>
-          </div>
-          <div class="zy-input">
-           <input type="checkbox" v-model = "d.allowPassWhenIptvCheck" @change="updateSettingEvent"> 检测时自动跳过停用源
-          </div>
-          <div class="zy-input">
-           <input type="checkbox" v-model = "d.autocleanWhenIptvCheck" @change="updateSettingEvent"> 检测时自动清理无效源
-          </div>
-          <div class="zy-input">
-          <input type="checkbox" v-model = "d.autoChangeSourceWhenIptvStalling" @change="updateSettingEvent">
-          卡顿时自动换源换台:<input style="width:50px" type="number" min=0 v-model.number = "d.waitingTimeInSec" @change="updateSettingEvent">秒
-          </div>
-        </div>
-      </div>
       <div class="site">
         <div class="title">源管理</div>
         <div class="site-box">
@@ -270,7 +236,6 @@ export default {
         site: false,
         shortcut: false,
         view: false,
-        editPlayerPath: false,
         checkPasswordDialog: false,
         changePasswordDialog: false,
         proxy: false,
@@ -365,7 +330,6 @@ export default {
       this.$message.success(`清除缓存成功, 共清理 ${mb} MB`)
     },
     updateSettingEvent () {
-      this.show.editPlayerPath = false
       this.setting = this.d
       setting.update(this.d)
     },
@@ -387,43 +351,12 @@ export default {
       this.updateSettingEvent()
     },
     resetDefaultSitesDataURL () {
-      this.setting.sitesDataURL = 'https://raw.iqiq.io/Hunlongyu/ZY-Player-Resources/main/Sites/20220713.json'
+      this.setting.sitesDataURL = 'https://raw.githubusercontent.com/A942199/yuan/refs/heads/main/TV.json'
     },
     configSitesDataURL () {
       if (!this.setting.sitesDataURL) this.resetDefaultSitesDataURL()
       this.d.sitesDataURL = this.setting.sitesDataURL
       this.show.configSitesDataUrlDialog = false
-      this.updateSettingEvent()
-    },
-    selectLocalPlayer () {
-      const options = {
-        filters: [
-          { name: 'Executable file', extensions: ['exe'] },
-          { name: 'All types', extensions: ['*'] }
-        ],
-        properties: ['openFile']
-      }
-      remote.dialog.showOpenDialog(options).then(result => {
-        if (!result.canceled) {
-          const playerPath = result.filePaths[0].replace(/\\/g, '/')
-          this.$message.success('设定第三方播放器路径为：' + result.filePaths[0])
-          this.d.externalPlayer = playerPath
-          this.updateSettingEvent()
-        }
-      }).catch(err => {
-        this.$message.error(err)
-      })
-    },
-    resetLocalPlayer () {
-      this.d.externalPlayer = ''
-      setting.update(this.d).then(res => {
-        this.updateSettingEvent()
-        this.$message.success('重置第三方播放器成功')
-      })
-    },
-    updatePlayerPath () {
-      this.$message.success('设定第三方播放器路径为：' + this.d.externalPlayer)
-      this.show.editPlayerPath = false
       this.updateSettingEvent()
     },
     editSitesEvent () {

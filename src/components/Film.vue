@@ -107,7 +107,6 @@
                     <div class="operate-wrap">
                       <span class="o-play" @click="playEvent(site, props.data)">播放</span>
                       <span class="o-star" @click="starEvent(site, props.data)">收藏</span>
-                      <span class="o-share" @click="shareEvent(site, props.data)">分享</span>
                     </div>
                   </div>
                 </div>
@@ -176,7 +175,6 @@
             <template slot-scope="scope">
               <el-button @click.stop="playEvent(site, scope.row)" type="text">播放</el-button>
               <el-button @click.stop="starEvent(site, scope.row)" type="text">收藏</el-button>
-              <el-button @click.stop="shareEvent(site, scope.row)" type="text">分享</el-button>
               <el-button @click.stop="downloadEvent(site, scope.row)" type="text">下载</el-button>
             </template>
           </el-table-column>
@@ -259,7 +257,6 @@
             <template slot-scope="scope">
               <el-button @click.stop="playEvent(scope.row.site, scope.row)" type="text">播放</el-button>
               <el-button @click.stop="starEvent(scope.row.site, scope.row)" type="text">收藏</el-button>
-              <el-button @click.stop="shareEvent(scope.row.site, scope.row)" type="text">分享</el-button>
               <el-button @click.stop="downloadEvent(scope.row.site, scope.row)" type="text">下载</el-button>
             </template>
           </el-table-column>
@@ -291,7 +288,6 @@
                     <div class="operate-wrap">
                       <span class="o-play" @click="playEvent(props.data.site, props.data)">播放</span>
                       <span class="o-star" @click="starEvent(props.data.site, props.data)">收藏</span>
-                      <span class="o-share" @click="shareEvent(props.data.site, props.data)">分享</span>
                     </div>
                   </div>
                 </div>
@@ -388,14 +384,6 @@ export default {
         this.SET_DETAIL(val)
       }
     },
-    share: {
-      get () {
-        return this.$store.getters.getShare
-      },
-      set (val) {
-        this.SET_SHARE(val)
-      }
-    },
     setting: {
       get () {
         return this.$store.getters.getSetting
@@ -482,7 +470,7 @@ export default {
     }
   },
   methods: {
-    ...mapMutations(['SET_VIEW', 'SET_DETAIL', 'SET_VIDEO', 'SET_SHARE', 'SET_SETTING', 'SET_DetailCache']),
+    ...mapMutations(['SET_VIEW', 'SET_DETAIL', 'SET_VIDEO', 'SET_SETTING', 'SET_DetailCache']),
     backTop () {
       const viewMode = this.showFind ? this.setting.searchViewMode : this.setting.view
       if (viewMode === 'picture') {
@@ -703,7 +691,11 @@ export default {
                 this.list.push(res)
               }
             }
-            $state.loaded()
+            if (zy.isPageOver(key, typeTid, page)) {
+              $state.complete()
+            } else {
+              $state.loaded()
+            }
             // 更新缓存数据
             const cacheKey = this.site.key + '@' + typeTid
             FILM_DATA_CACHE[cacheKey] = {
@@ -751,13 +743,6 @@ export default {
         star.add(docs).then(res => {
           this.$message.success('收藏成功')
         })
-      }
-    },
-    shareEvent (site, e) {
-      this.share = {
-        show: true,
-        key: site.key,
-        info: e
       }
     },
     async downloadEvent (site, row) {

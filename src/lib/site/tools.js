@@ -1,23 +1,12 @@
 import { sites, setting } from '../dexie'
 import axios from 'axios'
-import parser from 'fast-xml-parser'
 import cheerio from 'cheerio'
-import { Parser as M3u8Parser } from 'm3u8-parser'
-// import FLVDemuxer from 'xgplayer-flv.js/src/flv/demux/flv-demuxer.js'
-import SocksProxyAgent from 'socks-proxy-agent'
 
-// axios使用系统代理  https://evandontje.com/2020/04/02/automatic-system-proxy-configuration-for-electron-applications/
-// xgplayer使用chromium代理设置，浏览器又默认使用系统代理 https://www.chromium.org/developers/design-documents/network-settings
-// 要在设置中添加代理设置，可参考https://stackoverflow.com/questions/37393248/how-connect-to-proxy-in-electron-webview
-const http = require('http')
-const https = require('http')
 const remote = require('@electron/remote')
 const win = remote.getCurrentWindow()
 const session = win.webContents.session
-const ElectronProxyAgent = require('electron-proxy-agent')
-const URL = require('url')
-const request = require('request')
-let proxyURL
+const cms = require('./cms')
+const myvideo = require('./myvideo')
 
 // 取消axios请求  浅析cancelToken https://juejin.cn/post/6844904168277147661 https://masteringjs.io/tutorials/axios/cancel
 // const source = axios.CancelToken.source()
@@ -107,11 +96,14 @@ const zy = {
   class (key) {
     return new Promise((resolve, reject) => {
       this.getSite(key).then(res => {
+        if (myvideo.isSource(res)) {
+          myvideo.classes(res).then(resolve).catch(reject)
+          return
+        }
         const url = res.api
         axios.get(url).then(res => {
           const data = res.data
-          const json = parser.parse(data, this.xmlConfig)
-          const jsondata = json?.rss === undefined ? json : json.rss
+          const jsondata = cms.parse(data)
           if (!jsondata?.class || !jsondata?.list) resolve()
           const arr = []
           if (jsondata.class) {
@@ -150,6 +142,10 @@ const zy = {
     return new Promise((resolve, reject) => {
       this.getSite(key).then(res => {
         const site = res
+        if (myvideo.isSource(site)) {
+          myvideo.list(site, pg, t).then(resolve).catch(reject)
+          return
+        }
         let url = null
         if (t) {
           url = `${site.api}?ac=videolist&t=${t}&pg=${pg}`
@@ -158,9 +154,8 @@ const zy = {
         }
         axios.get(url).then(async res => {
           const data = res.data
-          const json = parser.parse(data, this.xmlConfig)
-          const jsondata = json.rss === undefined ? json : json.rss
-          const videoList = jsondata.list.video
+          const jsondata = cms.parse(data)
+          const videoList = cms.asArray(jsondata.list.video)
           if (videoList && videoList.length) {
             resolve(videoList)
           } else {
@@ -182,6 +177,10 @@ const zy = {
     return new Promise((resolve, reject) => {
       this.getSite(key).then(res => {
         const site = res
+        if (myvideo.isSource(site)) {
+          myvideo.page(site, t).then(resolve).catch(reject)
+          return
+        }
         let url = ''
         if (t) {
           url = `${site.api}?ac=videolist&t=${t}`
@@ -189,9 +188,7 @@ const zy = {
           url = `${site.api}?ac=videolist`
         }
         axios.get(url).then(async res => {
-          const data = res.data.match(/<list [^>]*>/)[0] + '</list>' // 某些源站不含页码时获取到的数据parser无法解析
-          const json = parser.parse(data, this.xmlConfig)
-          const jsondata = json.rss === undefined ? json : json.rss
+          const jsondata = cms.parse(res.data)
           const pg = {
             page: jsondata.list._page,
             pagecount: jsondata.list._pagecount,
@@ -215,12 +212,15 @@ const zy = {
     return new Promise((resolve, reject) => {
       this.getSite(key).then(res => {
         const site = res
+        if (myvideo.isSource(site)) {
+          myvideo.search(site, wd).then(resolve).catch(reject)
+          return
+        }
         const url = `${site.api}?wd=${encodeURI(wd)}`
         axios.get(url, { timeout: 3000 }).then(res => {
           const data = res.data
-          const json = parser.parse(data, this.xmlConfig)
-          const jsondata = json?.rss === undefined ? json : json.rss
-          if (json && jsondata && jsondata.list) {
+          const jsondata = cms.parse(data)
+          if (jsondata && jsondata.list) {
             let videoList = jsondata.list.video
             if (Object.prototype.toString.call(videoList) === '[object Object]') videoList = [].concat(videoList)
             videoList = videoList?.filter(e => e.name.toLowerCase().includes(wd.toLowerCase()))
@@ -250,12 +250,21 @@ const zy = {
     return new Promise((resolve, reject) => {
       this.getSite(key).then(res => {
         const site = res
+        if (myvideo.isSource(site)) {
+          myvideo.search(site, wd).then(videoList => {
+            if (videoList?.length) {
+              myvideo.detail(site, videoList[0].id).then(resolve).catch(reject)
+            } else {
+              resolve()
+            }
+          }).catch(reject)
+          return
+        }
         const url = `${site.api}?wd=${encodeURI(wd)}`
         axios.get(url, { timeout: 3000 }).then(res => {
           const data = res.data
-          const json = parser.parse(data, this.xmlConfig)
-          const jsondata = json?.rss === undefined ? json : json.rss
-          if (json && jsondata && jsondata.list) {
+          const jsondata = cms.parse(data)
+          if (jsondata && jsondata.list) {
             let videoList = jsondata.list.video
             if (Object.prototype.toString.call(videoList) === '[object Object]') videoList = [].concat(videoList)
             videoList = videoList?.filter(e => e.name.toLowerCase().includes(wd.toLowerCase()))
@@ -286,12 +295,15 @@ const zy = {
   detail (key, id) {
     return new Promise((resolve, reject) => {
       this.getSite(key).then(res => {
+        if (myvideo.isSource(res)) {
+          myvideo.detail(res, id).then(resolve).catch(reject)
+          return
+        }
         const url = `${res.api}?ac=videolist&ids=${id}`
         axios.get(url).then(res => {
           const data = res.data
-          const json = parser.parse(data, this.xmlConfig)
-          const jsondata = json?.rss === undefined ? json : json.rss
-          const videoList = jsondata?.list?.video
+          const jsondata = cms.parse(data)
+          const videoList = cms.asArray(jsondata?.list?.video)[0]
           if (!videoList) resolve()
           // Parse video lists
           let fullList = []
@@ -358,13 +370,12 @@ const zy = {
       let downloadUrls = ''
       this.getSite(key).then(res => {
         const site = res
-        if (site.download) {
-          const url = `${site.download}?ac=videolist&ids=${id}&ct=1`
-          axios.get(url).then(res => {
-            const data = res.data
-            const json = parser.parse(data, this.xmlConfig)
-            const jsondata = json.rss === undefined ? json : json.rss
-            const videoList = jsondata.list.video
+          if (site.download) {
+            const url = `${site.download}?ac=videolist&ids=${id}&ct=1`
+            axios.get(url).then(res => {
+              const data = res.data
+              const jsondata = cms.parse(data)
+              const videoList = cms.asArray(jsondata.list.video)[0]
             const dd = videoList.dl.dd
             const type = Object.prototype.toString.call(dd)
             if (type === '[object Array]') {
@@ -421,54 +432,6 @@ const zy = {
     } catch (e) {
       return false
     }
-  },
-  /**
-   * 检查直播源
-   * @param {*} channel 直播频道 url
-   * @returns boolean
-   */
-  checkChannel (url) {
-    return new Promise((resolve, reject) => {
-      const supportFormats = /\.(m3u8|flv)$/
-      const extRE = url.match(supportFormats) || new URL.URL(url).pathname.match(supportFormats)
-      if (extRE[1] === 'flv') {
-        const MAX_CONTENT_LENGTH = 2000 // axios配置maxContentLength不生效，先用request凑合
-        let receivedLength = 0
-        let options = { uri: url, gzip: true, timeout: 10000 }
-        if (proxyURL) {
-          if (proxyURL.startsWith('http')) options = Object.assign({ proxy: proxyURL }, options)
-          if (proxyURL.startsWith('socks5')) options = Object.assign({ agent: new SocksProxyAgent(proxyURL) }, options)
-        }
-        const req = request.get(options)
-          .on('data', (str) => {
-            receivedLength += str.length
-            if (receivedLength > MAX_CONTENT_LENGTH) {
-              resolve(true) // 应该用FLVDemuxer.probe来检测，先凑合
-              req.abort()
-            }
-          })
-          .on('error', function (err) {
-            resolve(false)
-            console.log(err)
-          })
-          .on('end', () => { resolve(false) })
-      } else if (extRE[1] === 'm3u8') {
-        axios.get(url).then(res => {
-          const manifest = res.data
-          const parser = new M3u8Parser()
-          parser.push(manifest)
-          parser.end()
-          const parsedManifest = parser.manifest
-          if (parsedManifest.segments.length) {
-            resolve(true)
-          } else {
-            resolve(false)
-          }
-        }).catch(e => {
-          resolve(false)
-        })
-      }
-    })
   },
   /**
    * 获取豆瓣页面链接
@@ -564,28 +527,31 @@ const zy = {
     })
   },
   getDefaultSites (url) {
-    return new Promise((resolve, reject) => {
-      axios.get(url).then(res => {
-        resolve(res.data)
-      }).catch(err => { reject(err) })
+    return myvideo.loadConfig(url).then(payload => myvideo.importSites(payload, url))
+  },
+  resolvePlay (key, marker) {
+    return this.getSite(key).then(site => {
+      if (!myvideo.isSource(site)) return null
+      return myvideo.play(site, marker)
     })
+  },
+  isPageOver (key, tid, pageNo) {
+    return myvideo.isPageOver(key, tid, pageNo)
   },
   proxy () {
     return new Promise((resolve, reject) => {
       setting.find().then(db => {
         if (db && db.proxy && db.proxy.type === 'manual') {
           if (db.proxy.scheme && db.proxy.url && db.proxy.port) {
-            proxyURL = db.proxy.scheme + '://' + db.proxy.url.trim() + ':' + db.proxy.port.trim()
-            session.setProxy({ proxyRules: proxyURL })
-            http.globalAgent = https.globalAgent = new ElectronProxyAgent(session)
+            const proxyURL = db.proxy.scheme + '://' + db.proxy.url.trim() + ':' + db.proxy.port.trim()
+            session.setProxy({ proxyRules: proxyURL }).then(resolve).catch(reject)
+            return
           }
         } else {
-          proxyURL = ''
-          session.setProxy({ proxyRules: 'direct://' })
-          http.globalAgent = https.globalAgent = new ElectronProxyAgent(session)
+          session.setProxy({ proxyRules: 'direct://' }).then(resolve).catch(reject)
+          return
         }
-        // 不要删了，留着测试用
-        // axios.get('https://api.my-ip.io/ip').then(res => console.log(res))
+        resolve()
       })
     })
   }

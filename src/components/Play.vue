@@ -18,7 +18,7 @@
           frameborder="0" scrolling="no" allow='autoplay;fullscreen'>
         </iframe>
       </div>
-      <div class="more" v-if="!video.iptv" :key="Boolean(video.iptv)">
+      <div class="more">
         <span class="zy-svg" @click="otherEvent" v-show="name !== ''" :class="right.type === 'other' ? 'active' : ''">
           <svg role="img" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" aria-labelledby="coloursIconTitle">
             <title id="coloursIconTitle">换源</title>
@@ -71,30 +71,6 @@
             <path d="M12 20L3 11M12 20L21 11M12 20L8 11M12 20L16 11M3 11L7 5M3 11H8M7 5L8 11M7 5H12M17 5L21 11M17 5L16 11M17 5H12M21 11H16M8 11H16M8 11L12 5M16 11L12 5"></path>
           </svg>
         </span>
-        <span class="zy-svg" @click="playWithExternalPalyerEvent" v-show="!onlineUrl && right.list.length > 0">
-          <svg role="img" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" aria-labelledby="tvIconTitle">
-            <title id="tvIconTitle" >使用第三方播放器</title>
-            <polygon points="20 8 20 20 4 20 4 8"></polygon>
-            <polyline stroke-linejoin="round" points="8 4 12 7.917 16 4"></polyline>
-          </svg>
-        </span>
-        <span class="zy-svg" @click="shareEvent" v-show="right.list.length > 0">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-labelledby="qrIconTitle">
-            <title id="qrIconTitle">分享</title>
-            <rect x="10" y="3" width="7" height="7" transform="rotate(90 10 3)"></rect>
-            <rect width="1" height="1" transform="matrix(-1 0 0 1 7 6)"></rect>
-            <rect x="10" y="14" width="7" height="7" transform="rotate(90 10 14)"></rect>
-            <rect x="6" y="17" width="1" height="1"></rect>
-            <rect x="14" y="20" width="1" height="1"></rect>
-            <rect x="17" y="17" width="1" height="1"></rect>
-            <rect x="14" y="14" width="1" height="1"></rect>
-            <rect x="20" y="17" width="1" height="1"></rect>
-            <rect x="20" y="14" width="1" height="1"></rect>
-            <rect x="20" y="20" width="1" height="1"></rect>
-            <rect x="21" y="3" width="7" height="7" transform="rotate(90 21 3)"></rect>
-            <rect x="17" y="6" width="1" height="1"></rect>
-          </svg>
-        </span>
         <span class="zy-svg" @click="showShortcutEvent" :class="right.type === 'shortcut' ? 'active' : ''" v-show="!onlineUrl && right.list.length > 0">
           <svg role="img" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" aria-labelledby="sendIconTitle">
             <title id="sendIconTitle">快捷键指南</title>
@@ -133,54 +109,14 @@
           <span v-if="right.history[0].onlinePlay">在线解析</span>
         </span>
       </div>
-      <div class="more" v-if="video.iptv" :key="Boolean(video.iptv)">
-        <span class="zy-svg" @click="state.showChannelList = !state.showChannelList" :class="state.showChannelList ? 'active' : ''">
-          <svg role="img" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" aria-labelledby="dashboardIconTitle">
-            <title id="dashboardIconTitle">频道列表</title>
-            <rect width="20" height="20" x="2" y="2"></rect>
-            <path d="M11 7L17 7M11 12L17 12M11 17L17 17"></path>
-            <line x1="7" y1="7" x2="7" y2="7"></line>
-            <line x1="7" y1="12" x2="7" y2="12"></line>
-            <line x1="7" y1="17" x2="7" y2="17"></line>
-          </svg>
-        </span>
-        <span class="zy-svg" @click="otherEvent" :class="right.type === 'sources' ? 'active' : ''">
-          <svg role="img" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" aria-labelledby="coloursIconTitle">
-            <title id="coloursIconTitle">换源</title>
-            <circle cx="12" cy="9" r="5"></circle>
-            <circle cx="9" cy="14" r="5"></circle>
-            <circle cx="15" cy="14" r="5"></circle>
-          </svg>
-        </span>
-        <span class="zy-svg" @click="miniEvent">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-labelledby="diamondIconTitle">
-            <title id="diamondIconTitle">精简模式</title>
-            <path d="M12 20L3 11M12 20L21 11M12 20L8 11M12 20L16 11M3 11L7 5M3 11H8M7 5L8 11M7 5H12M17 5L21 11M17 5L16 11M17 5H12M21 11H16M8 11H16M8 11L12 5M16 11L12 5"></path>
-          </svg>
-        </span>
-        <span class="zy-svg" @click="playWithExternalPalyerEvent">
-          <svg role="img" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" aria-labelledby="tvIconTitle">
-            <title id="tvIconTitle" >使用第三方播放器</title>
-            <polygon points="20 8 20 20 4 20 4 8"></polygon>
-            <polyline stroke-linejoin="round" points="8 4 12 7.917 16 4"></polyline>
-          </svg>
-        </span>
-        <span class="zy-svg" @click="showShortcutEvent" :class="right.type === 'shortcut' ? 'active' : ''">
-          <svg role="img" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" aria-labelledby="sendIconTitle">
-            <title id="sendIconTitle">快捷键指南</title>
-            <polygon points="21.368 12.001 3 21.609 3 14 11 12 3 9.794 3 2.394"></polygon>
-          </svg>
-        </span>
-      </div>
     </div>
     <transition name="slideX">
       <div v-if="right.show" class="list">
         <div class="list-top">
           <span class="list-top-title" v-if="right.type === 'list'">播放列表</span>
           <span class="list-top-title" v-if="right.type === 'history'">历史记录</span>
-          <span class="list-top-title" v-if="right.type === 'shortcut'">快捷键指南{{ this.video.iptv ? '(直播时部分功能不可用)' : '' }}</span>
+          <span class="list-top-title" v-if="right.type === 'shortcut'">快捷键指南</span>
           <span class="list-top-title" v-if="right.type === 'other'">同组其他源的视频</span>
-          <span class="list-top-title" v-if="right.type === 'sources'">该频道可用源</span>
           <span class="list-top-close zy-svg" @click="closeListEvent">
             <svg role="img" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" aria-labelledby="closeIconTitle">
               <title id="closeIconTitle">关闭</title>
@@ -206,42 +142,6 @@
             <li v-if="right.other.length === 0">无数据</li>
             <li @click="otherItemEvent(m)" v-for="(m, n) in right.other" :key="n"><span class="title">{{m.name}} - [{{m.site.name}}]</span></li>
           </ul>
-          <ul v-if="right.type === 'sources'" class="list-channels" v-clickoutside="closeListEvent">
-            <li v-if="right.sources.length === 0">当前频道已关闭</li>
-            <li v-for="(channel, index) in right.sources" :key="index">
-              <span @click="playChannel(channel)" class="title">{{ channel.id === video.iptv.id ? channel.name + '[当前]' : channel.name }}</span>
-              <span @click="disableChannel(channel)" class="btn" title="关闭频道">隐藏</span>
-            </li>
-          </ul>
-        </div>
-      </div>
-    </transition>
-    <transition name="slideX">
-      <div v-if="state.showChannelList && channelList && channelList.length > 0" class="list" v-clickoutside="closeListEvent">
-         <div class="list-top">
-          <span class="list-top-title">频道列表</span>
-          <span class="list-top-close zy-svg" @click="state.showChannelList = false">
-            <svg role="img" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" aria-labelledby="closeIconTitle">
-              <title id="closeIconTitle">关闭</title>
-              <path d="M6.34314575 6.34314575L17.6568542 17.6568542M6.34314575 17.6568542L17.6568542 6.34314575"></path>
-            </svg>
-          </span>
-        </div>
-        <div class="list-body zy-scroll" :style="{overflowY:scroll? 'auto' : 'hidden',paddingRight: scroll ? '0': '5px' }" @mouseenter="scroll = true" @mouseleave="scroll = false">
-          <el-input
-            clearable
-            size="small" title="支持按拼音首字母搜索"
-            v-model.trim="searchTxt"
-            placeholder="搜索">
-           <i slot="prefix" class="el-input__icon el-icon-search"></i>
-          </el-input>
-          <el-tree ref="channelTree"
-            :data="channelTree"
-            :props="defaultProps"
-            accordion
-            :filter-node-method="filterNode"
-            @node-click="handleNodeClick">
-          </el-tree>
         </div>
       </div>
     </transition>
@@ -249,18 +149,15 @@
 </template>
 <script>
 import { mapMutations } from 'vuex'
-import { star, history, setting, shortcut, mini, channelList, sites } from '../lib/dexie'
+import { star, history, setting, shortcut, mini, sites } from '../lib/dexie'
 import zy from '../lib/site/tools'
 import Player from 'xgplayer'
 import 'xgplayer-mp4'
 import HlsJsPlayer from 'xgplayer-hls.js'
-import FlvJsPlayer from 'xgplayer-flv.js'
 import mt from 'mousetrap'
 import Clickoutside from 'element-ui/src/utils/clickoutside'
-import { exec, execFile } from 'child_process'
-import PinyinMatch from 'pinyin-match'
 
-const { clipboard } = require('electron')
+const { clipboard, ipcRenderer } = require('electron')
 const remote = require('@electron/remote')
 const win = remote.getCurrentWindow()
 const URL = require('url')
@@ -318,7 +215,6 @@ export default {
         history: [],
         shortcut: [],
         other: [],
-        sources: [],
         currentTime: 0
       },
       config: {
@@ -350,7 +246,6 @@ export default {
       state: {
         showList: false,
         showHistory: false,
-        showChannelList: false,
         showTimespanSetting: false
       },
       name: '',
@@ -360,14 +255,6 @@ export default {
       isStar: false,
       miniMode: false,
       mainWindowBounds: {},
-      searchTxt: '',
-      channelList: [],
-      channelTree: [],
-      isLive: false,
-      defaultProps: {
-        label: 'label',
-        children: 'children'
-      },
       startPosition: { min: '00', sec: '00' }, // 对应调略输入框
       endPosition: { min: '00', sec: '00' },
       skipendStatus: false, // 是否跳过了片尾
@@ -375,7 +262,6 @@ export default {
       onlineUrl: '',
       playerType: 'hls',
       exportablePlaylist: false,
-      changingIPTV: false
     }
   },
   filters: {
@@ -416,14 +302,6 @@ export default {
         this.SET_DETAIL(val)
       }
     },
-    share: {
-      get () {
-        return this.$store.getters.getShare
-      },
-      set (val) {
-        this.SET_SHARE(val)
-      }
-    },
     appState: {
       get () {
         return this.$store.getters.getAppState
@@ -457,15 +335,10 @@ export default {
       if (this.view === 'Play') {
         this.right.show = false
         this.right.type = ''
-        this.getChannelList()
-        if (this.video.key === '' && !this.isLive) {
-          this.state.showChannelList = true
-        }
       }
     },
     VideoEssentialInfo: {
       handler () {
-        if (this.changingIPTV) return
         this.getUrls()
       }
     },
@@ -486,9 +359,6 @@ export default {
         span.innerText = `${this.name}`
       }
     },
-    searchTxt () {
-      this.$refs.channelTree.filter(this.searchTxt)
-    },
     startPosition: {
       handler (time) {
         this.leadingZero(time)
@@ -503,7 +373,7 @@ export default {
     }
   },
   methods: {
-    ...mapMutations(['SET_VIEW', 'SET_DETAIL', 'SET_VIDEO', 'SET_SHARE', 'SET_APPSTATE', 'SET_DetailCache']),
+    ...mapMutations(['SET_VIEW', 'SET_DETAIL', 'SET_VIDEO', 'SET_APPSTATE', 'SET_DetailCache']),
     fmtMSS (s) {
       return (s - (s %= 60)) / 60 + (s > 9 ? ':' : ':0') + s
     },
@@ -517,15 +387,6 @@ export default {
           time[key] = '0' + time[key]
         }
       })
-    },
-    handleNodeClick (node) {
-      if (node.channel) {
-        this.playChannel(node.channel)
-      }
-    },
-    filterNode (value, data) {
-      if (!value) return true
-      return PinyinMatch.match(data.label, value)
     },
     async getUrls () {
       if (this.video.key === '') {
@@ -653,9 +514,38 @@ export default {
           playlist = fullList.find(x => x.flag === videoFlag).list
         }
         this.right.list = playlist
-        const url = playlist[index].includes('$') ? playlist[index].split('$')[1] : playlist[index]
-        if (playlist.every(e => e.includes('$') ? e.split('$')[1].endsWith('.m3u8') : e.endsWith('.m3u8'))) this.exportablePlaylist = true
-        if (!url.endsWith('.m3u8') && !url.endsWith('.mp4')) {
+        let url = playlist[index].includes('$') ? playlist[index].split('$')[1] : playlist[index]
+        const resolved = await zy.resolvePlay(this.video.key, url)
+        if (resolved) {
+          if (!resolved.url) {
+            this.$message.error('该源未返回可播放地址')
+            return
+          }
+          url = resolved.url
+          if (resolved.headers && resolved.headers.length) {
+            await ipcRenderer.invoke('myvideo:set-playback-headers', {
+              url,
+              headers: resolved.headers
+            })
+          }
+        }
+        const mediaPath = (() => {
+          try {
+            return new URL.URL(url).pathname
+          } catch (e) {
+            return url.split('?')[0]
+          }
+        })()
+        if (playlist.every(e => {
+          const itemUrl = e.includes('$') ? e.split('$')[1] : e
+          if (itemUrl.startsWith('myvideo-play:')) return false
+          try {
+            return new URL.URL(itemUrl).pathname.endsWith('.m3u8')
+          } catch (e) {
+            return itemUrl.split('?')[0].endsWith('.m3u8')
+          }
+        })) this.exportablePlaylist = true
+        if (!mediaPath.endsWith('.m3u8') && !mediaPath.endsWith('.mp4')) {
           const currentSite = await sites.find({ key: this.video.key })
           this.$message.info('即将调用解析接口播放，请等待...')
           if (currentSite.jiexiUrl) {
@@ -666,7 +556,7 @@ export default {
           this.videoPlaying('online')
           return
         } else {
-          const ext = url.match(/\.\w+?$/)[0].slice(1)
+          const ext = mediaPath.match(/\.\w+?$/)[0].slice(1)
           this.getPlayer(ext)
         }
         this.xg.src = url
@@ -955,61 +845,6 @@ export default {
       }
       clipboard.writeText(JSON.stringify(info, null, 4))
       this.$message.success('视频信息复制成功')
-    },
-    playWithExternalPalyerEvent () {
-      const fs = require('fs')
-      const externalPlayer = this.setting.externalPlayer
-      if (this.video.iptv) {
-        if (!externalPlayer) {
-          this.$message.error('请设置第三方播放器路径')
-          return
-        }
-        if (fs.existsSync(externalPlayer)) {
-          execFile(externalPlayer, [this.video.iptv.url])
-        } else {
-          exec(externalPlayer, [this.video.iptv.url])
-        }
-      } else {
-        const playlistUrls = this.right.list.map(e => e.split('$')[1])
-        if (!externalPlayer) {
-          this.$message.error('请设置第三方播放器路径')
-          // 在线播放该视频
-          if (playlistUrls[this.video.info.index].endsWith('.m3u8')) {
-            const link = 'http://hunlongyu.gitee.io/zy-player-web?url=' + playlistUrls[this.video.info.index] + '&name=' + this.video.info.name
-            const open = require('open')
-            open(link)
-          }
-        } else {
-          let playlist
-          if (playlistUrls.every(e => e.endsWith('.m3u8'))) {
-            playlist = this.generateM3uFile(this.video.info.name, playlistUrls, this.video.info.index)
-          } else {
-            playlist = playlistUrls[this.video.info.index]
-          }
-          if (fs.existsSync(externalPlayer)) {
-            execFile(externalPlayer, [playlist])
-          } else {
-            exec(externalPlayer, [playlist])
-          }
-        }
-      }
-    },
-    generateM3uFile (fileName, m3u8Arr, startIndex) {
-      const path = require('path')
-      const os = require('os')
-      const fs = require('fs')
-      const filePath = path.join(os.tmpdir(), fileName + '.m3u')
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath)
-      }
-      let str = '#EXTM3U' + os.EOL
-      for (let ind = startIndex; ind < m3u8Arr.length; ind++) {
-        str += `#EXTINF: -1, 第${ind + 1}集` + os.EOL
-        str += m3u8Arr[ind] + os.EOL
-      }
-      str += '#EXT-X-ENDLIST' + os.EOL
-      fs.writeFileSync(filePath, str)
-      return filePath
     },
     closeListEvent () {
       const lastRightType = this.right.type

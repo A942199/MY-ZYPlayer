@@ -1,12 +1,15 @@
 'use strict'
 
-import { app, protocol, BrowserWindow, globalShortcut } from 'electron'
+import { app, protocol, BrowserWindow, globalShortcut, ipcMain } from 'electron'
 import { createProtocol } from 'vue-cli-plugin-electron-builder/lib'
 import installExtension, { VUEJS_DEVTOOLS } from 'electron-devtools-installer'
 import { initUpdater } from './lib/update/update'
+const { registerMyVideoIpc, applyPlaybackHeaders } = require('./main/myvideo/runtime')
 require('@electron/remote/main').initialize()
 
 const isDevelopment = process.env.NODE_ENV !== 'production'
+
+registerMyVideoIpc(ipcMain)
 
 // const log = require('electron-log') // 用于调试主程序
 
@@ -43,7 +46,7 @@ function createWindow () {
   // 修改request headers
   // Sec-Fetch下禁止修改，浏览器自动加上请求头 https://www.cnblogs.com/fulu/p/13879080.html 暂时先用index.html的meta referer policy替代
   const filter = {
-    urls: ['http://*/*', 'http://*/*']
+    urls: ['http://*/*', 'https://*/*']
   }
   require("@electron/remote/main").enable(win.webContents)
   win.webContents.session.webRequest.onBeforeSendHeaders(filter, (details, callback) => {
@@ -52,6 +55,7 @@ function createWindow () {
     if (!details.url.includes('//localhost') && details.requestHeaders.Referer && details.requestHeaders.Referer.includes('//localhost')) {
       details.requestHeaders.Referer = url.origin
     }
+    details.requestHeaders = applyPlaybackHeaders(details.url, details.requestHeaders)
     callback({ // https://github.com/electron/electron/issues/23988 回调似乎无法修改headers，暂时先用index.html的meta referer policy替代
       cancel: false,
       requestHeaders: details.requestHeaders

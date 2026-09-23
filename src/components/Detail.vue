@@ -39,17 +39,7 @@
           <span @click="playEvent(selectedEpisode)">播放</span>
           <span @click="starEvent(info)">收藏</span>
           <span @click="downloadEvent">下载</span>
-          <span @click="shareEvent(info,selectedEpisode)">分享</span>
           <span @click="doubanLinkEvent">豆瓣</span>
-          <span @click="togglePlayOnlineEvent">
-            <input type="checkbox" v-model="playOnline"> 播放在线高清视频
-          </span>
-          <span>
-            <select v-model="selectedOnlineSite" class="vs-options">
-              <option disabled value="">Please select one</option>
-              <option v-for="(i, j) in onlineSites" :key="j">{{i}}</option>
-            </select>
-          </span>
         </div>
         <div
           class="desc" v-show="info.des">{{info.des}}
@@ -64,47 +54,6 @@
             <span v-bind:class="{ selected: j === selectedEpisode }" v-for="(i, j) in videoList" :key="j" @click="playEvent(j)" @mouseenter="() => { selectedEpisode = j }">{{ i | ftName(j) }}</span>
           </div>
         </div>
-        <div class="m3u8">
-          <div class="show-picture" v-show="info.recommendations && info.recommendations.length > 0">
-            <span>喜欢这部电影的人也喜欢 · · · · · ·</span>
-            <Waterfall :list="info.recommendations" :gutter="20" :width="240"
-            :breakpoints="{
-            1200: { //当屏幕宽度小于等于1200
-              rowPerView: 4,
-            },
-            800: { //当屏幕宽度小于等于800
-              rowPerView: 3,
-            },
-            500: { //当屏幕宽度小于等于500
-              rowPerView: 2,
-            }
-          }"
-          animationEffect="fadeIn"
-          backgroundColor="rgba(0, 0, 0, 0)">
-            <template slot="item" slot-scope="props">
-              <div class="card">
-                <div class="img">
-                  <img style="width: 100%" :src="props.data.pic" alt="" @click="detailEvent(props.data)">
-                  <div class="operate">
-                    <div class="operate-wrap">
-                      <span class="o-play" @click="playRecommendationEvent(props.data)">播放</span>
-                      <span class="o-star" @click="starEvent(props.data)">收藏</span>
-                      <span class="o-share" @click="shareEvent(props.data, 0)">分享</span>
-                    </div>
-                  </div>
-                </div>
-                <div class="name">{{props.data.name}}</div>
-                <div class="info">
-                  <span>{{props.data.area}}</span>
-                  <span>{{props.data.year}}</span>
-                  <span>{{props.data.note}}</span>
-                  <span>{{props.data.type}}</span>
-                </div>
-              </div>
-            </template>
-            </Waterfall>
-          </div>
-        </div>
       </div>
       <div class="detail-mask zy-loading" v-show="loading">
         <div class="loader"></div>
@@ -114,9 +63,7 @@
 </template>
 <script>
 import { mapMutations } from 'vuex'
-import Waterfall from 'vue-waterfall-plugin'
 import zy from '../lib/site/tools'
-import onlineVideo from '../lib/site/onlineVideo'
 import { star, history } from '../lib/dexie'
 const { clipboard } = require('electron')
 export default {
@@ -130,10 +77,7 @@ export default {
       key: '',
       site: {},
       info: {},
-      playOnline: false,
-      selectedEpisode: 0, // 选定集数
-      selectedOnlineSite: '哔嘀',
-      onlineSites: ['哔嘀', '素白白', '简影', '极品', '喜欢看', '1080影视']
+      selectedEpisode: 0 // 选定集数
     }
   },
   filters: {
@@ -171,14 +115,6 @@ export default {
         this.SET_VIDEO(val)
       }
     },
-    share: {
-      get () {
-        return this.$store.getters.getShare
-      },
-      set (val) {
-        this.SET_SHARE(val)
-      }
-    },
     DetailCache: {
       get () {
         return this.$store.getters.getDetailCache
@@ -188,22 +124,8 @@ export default {
       }
     }
   },
-  components: {
-    Waterfall
-  },
   methods: {
-    ...mapMutations(['SET_VIEW', 'SET_VIDEO', 'SET_DETAIL', 'SET_SHARE', 'SET_DetailCache']),
-    async playRecommendationEvent (e) {
-      const db = await history.find({ site: this.detail.key, ids: e.id })
-      if (db) {
-        this.video = { key: db.site, info: { id: db.ids, name: db.name, index: db.index, site: this.detail.site } }
-      } else {
-        this.video = { key: this.detail.key, info: { id: e.id, name: e.name, index: 0, site: this.detail.site } }
-      }
-      this.video.detail = e
-      this.view = 'Play'
-      this.detail.show = false
-    },
+    ...mapMutations(['SET_VIEW', 'SET_VIDEO', 'SET_DETAIL', 'SET_DetailCache']),
     addClass (flag) {
       if (flag === this.videoFlag) {
         return 'selectedBox'
@@ -226,37 +148,15 @@ export default {
       }
     },
     async playEvent (n) {
-      if (!this.playOnline) {
-        const db = await history.find({ site: this.detail.key, ids: this.detail.info.id })
-        if (db) {
-          this.video = { key: db.site, info: { id: db.ids, name: db.name, index: n, site: this.detail.site, videoFlag: this.videoFlag } }
-        } else {
-          this.video = { key: this.detail.key, info: { id: this.detail.info.id, name: this.detail.info.name, index: n, site: this.detail.site, videoFlag: this.videoFlag } }
-        }
-        this.video.detail = this.info
-        this.view = 'Play'
-        this.detail.show = false
+      const db = await history.find({ site: this.detail.key, ids: this.detail.info.id })
+      if (db) {
+        this.video = { key: db.site, info: { id: db.ids, name: db.name, index: n, site: this.detail.site, videoFlag: this.videoFlag } }
       } else {
-        const db = await history.find({ site: this.detail.key, ids: this.info.id })
-        if (db) {
-          db.index = n
-          db.detail = this.info
-          history.update(db.id, db)
-        } else {
-          const doc = {
-            site: this.detail.key,
-            ids: this.detail.info.id,
-            name: this.detail.info.name,
-            type: this.detail.info.type,
-            year: this.detail.info.year,
-            index: n,
-            time: '',
-            detail: this.info
-          }
-          history.add(doc)
-        }
-        onlineVideo.playVideoOnline(this.selectedOnlineSite, this.detail.info.name, n)
+        this.video = { key: this.detail.key, info: { id: this.detail.info.id, name: this.detail.info.name, index: n, site: this.detail.site, videoFlag: this.videoFlag } }
       }
+      this.video.detail = this.info
+      this.view = 'Play'
+      this.detail.show = false
     },
     async starEvent (info) {
       const db = await star.find({ key: this.detail.key, ids: info.id })
@@ -281,36 +181,6 @@ export default {
       this.detail.info = info
       this.getDetailInfo()
     },
-    togglePlayOnlineEvent () {
-      this.playOnline = !this.playOnline
-    },
-    playVideoOnline (videoName, videoIndex) {
-      switch (this.selectedOnlineSite) {
-        case '哔嘀':
-          onlineVideo.playVideoOnBde4(videoName, videoIndex)
-          break
-        case '1080影视':
-          onlineVideo.playVideoOnK1080(videoName, videoIndex)
-          break
-        case '素白白':
-          onlineVideo.playVideoOnSubaibai(videoName, videoIndex)
-          break
-        case '哆咪动漫':
-          onlineVideo.playVideoOndmdm2020(videoName, videoIndex)
-          break
-        case '樱花动漫':
-          onlineVideo.playVideoOnYhdm(videoName, videoIndex)
-          break
-        case '简影':
-          onlineVideo.playVideoOnSyrme(videoName, videoIndex)
-          break
-        case '极品':
-          onlineVideo.playVideoOnJpysvip(videoName, videoIndex)
-          break
-        default:
-          this.$message.console.error(`不支持该网站：${this.selectedOnlineSite}`)
-      }
-    },
     downloadEvent () {
       zy.download(this.detail.key, this.info.id, this.videoFlag).then(res => {
         clipboard.writeText(res.downloadUrls)
@@ -319,37 +189,18 @@ export default {
         this.$message.error(err.info)
       })
     },
-    shareEvent (info, selectedEpisode) {
-      this.share = {
-        show: true,
-        key: this.detail.key,
-        info: info,
-        index: selectedEpisode
-      }
-    },
     doubanLinkEvent () {
       const name = this.info.name.trim()
       const year = this.info.year
       zy.doubanLink(name, year).then(link => {
-        const open = require('open')
-        open(link)
+        const { shell } = require('electron')
+        shell.openExternal(link)
       })
     },
     async getDoubanRate () {
       const name = this.info.name.trim()
       const year = this.info.year
       this.info.rate = await zy.doubanRate(name, year)
-      const recommendations = await zy.doubanRecommendations(name, year)
-      if (recommendations) {
-        this.info.recommendations = []
-        recommendations.forEach(element => {
-          zy.searchFirstDetail(this.detail.key, element).then(detailRes => {
-            if (detailRes) {
-              this.info.recommendations.push(detailRes)
-            }
-          })
-        })
-      }
     },
     async getDetailInfo () {
       const id = this.detail.info.ids || this.detail.info.id
@@ -366,7 +217,6 @@ export default {
       if (res) {
         this.info = res
         this.$set(this.info, 'rate', this.DetailCache[cacheKey].rate || '')
-        this.$set(this.info, 'recommendations', this.DetailCache[cacheKey].recommendations || [])
         this.videoFlag = this.videoFlag || res.fullList[0].flag
         this.videoList = res.fullList[0].list
         this.videoFullList = res.fullList

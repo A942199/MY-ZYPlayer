@@ -17,11 +17,6 @@ export default new Vuex.Store({
       key: '',
       info: {}
     },
-    share: {
-      show: false,
-      key: '',
-      info: {}
-    },
     video: {
       key: '',
       info: {}
@@ -40,9 +35,6 @@ export default new Vuex.Store({
     },
     getDetail: state => {
       return state.detail
-    },
-    getShare: state => {
-      return state.share
     },
     getVideo: state => {
       return state.video
@@ -63,9 +55,6 @@ export default new Vuex.Store({
     },
     SET_DETAIL: (state, payload) => {
       state.detail = payload
-    },
-    SET_SHARE: (state, payload) => {
-      state.share = payload
     },
     SET_VIDEO: (state, payload) => {
       state.video = payload

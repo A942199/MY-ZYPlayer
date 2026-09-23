@@ -2,22 +2,33 @@ module.exports = {
   pages: {
     index: 'src/main.js'
   },
+  configureWebpack: {
+    externals: {
+      electron: 'commonjs2 electron'
+    }
+  },
   pluginOptions: {
     electronBuilder: {
       nodeIntegration: true,
+      extraResources: [
+        {
+          from: 'src/main/myvideo/runtime.worker.js',
+          to: 'myvideo/runtime.worker.js'
+        }
+      ],
       builderOptions: {
         nsis: {
           oneClick: false,
           allowToChangeInstallationDirectory: true
         },
-        appId: 'com.hunlongyu.zy',
-        copyright: 'Copyright @ 2020 Hunlongyu',
-        productName: 'ZY Player',
+        appId: 'com.a942199.myzyplayer',
+        copyright: 'MY-ZYPlayer contributors',
+        productName: 'MY-ZYPlayer',
         publish: [
           {
             provider: 'github',
-            owner: 'Hunlongyu',
-            repo: 'ZY-Player'
+            owner: 'A942199',
+            repo: 'MY-ZYPlayer'
           }
         ],
         mac: {

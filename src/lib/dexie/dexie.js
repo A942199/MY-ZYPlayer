@@ -1,5 +1,5 @@
 import Dexie from 'dexie'
-import { sites, localKey, iptv, recommendations, iniSetting } from './initData'
+import { sites, localKey, iniSetting } from './initData'
 
 const db = new Dexie('zy')
 db.version(4).stores({
@@ -96,7 +96,7 @@ db.version(11).stores({
     'windowPositionAndSize, pauseWhenMinimize, sitesDataURL, defaultParseURL'
 }).upgrade(trans => {
   trans.setting.toCollection().modify(setting => {
-    setting.sitesDataURL = 'https://raw.iqiq.io/Hunlongyu/ZY-Player-Resources/main/Sites/20220713.json'
+    setting.sitesDataURL = 'https://raw.githubusercontent.com/A942199/yuan/refs/heads/main/TV.json'
     setting.defaultParseURL = 'https://jx.bpba.cc/?v='
   })
 })
@@ -109,12 +109,34 @@ db.version(12).stores({
   })
 })
 
+db.version(13).stores({
+  sites: '++id, key, name, api, download, jiexiUrl, isActive, group, reverseOrder'
+}).upgrade(trans => {
+  trans.setting.toCollection().modify(setting => {
+    if (!setting.sitesDataURL || setting.sitesDataURL.includes('Hunlongyu/ZY-Player-Resources')) {
+      setting.sitesDataURL = 'https://raw.githubusercontent.com/A942199/yuan/refs/heads/main/TV.json'
+    }
+  })
+})
+
+db.version(14).stores({
+  iptv: null,
+  channelList: null,
+  recommendation: null
+}).upgrade(trans => {
+  trans.setting.toCollection().modify(setting => {
+    delete setting.allowPassWhenIptvCheck
+    delete setting.autocleanWhenIptvCheck
+    delete setting.autoChangeSourceWhenIptvStalling
+    delete setting.waitingTimeInSec
+    delete setting.recommendationViewMode
+  })
+})
+
 db.on('populate', () => {
   db.setting.bulkAdd(iniSetting)
   db.sites.bulkAdd(sites)
   db.shortcut.bulkAdd(localKey)
-  db.iptv.bulkAdd(iptv)
-  db.recommendation.bulkAdd(recommendations)
 })
 
 db.open()

@@ -4,8 +4,6 @@
           <el-switch v-model="enableBatchEdit" active-text="批处理分组">></el-switch>
           <el-button @click="openFilterKeywordsDiag" icon="el-icon-key">关键词过滤</el-button>
           <el-button @click="addSite" icon="el-icon-document-add">新增</el-button>
-          <el-button @click="exportSites" icon="el-icon-upload2" title="导出全部，自动添加扩展名">导出</el-button>
-          <el-button @click="importSites" icon="el-icon-download" title="支持同时导入多个文件">导入</el-button>
           <el-button @click="checkAllSite" icon="el-icon-refresh" :loading="checkAllSitesLoading" title="可在后台运行">检测{{ this.checkAllSitesLoading ? this.checkProgress + '/' + this.sites.length : '' }}</el-button>
           <el-button @click="resetSitesEvent" icon="el-icon-refresh-left">重置</el-button>
     </div>
@@ -150,9 +148,7 @@
 import { mapMutations } from 'vuex'
 import { sites, setting } from '../lib/dexie'
 import zy from '../lib/site/tools'
-import fs from 'fs'
 import Sortable from 'sortablejs'
-const remote = require('@electron/remote')
 
 export default {
   name: 'editSites',
@@ -392,6 +388,12 @@ export default {
         id: this.dialogType === 'edit' ? this.siteInfo.id : this.sites.length ? this.sites[this.sites.length - 1].id + 1 : 1,
         name: this.siteInfo.name,
         api: this.siteInfo.api,
+        type: this.siteInfo.type,
+        ext: this.siteInfo.ext,
+        sourceKind: this.siteInfo.sourceKind,
+        network: this.siteInfo.network || 'native',
+        configUrl: this.siteInfo.configUrl,
+        allowDynamicCode: this.siteInfo.allowDynamicCode === true,
         download: this.siteInfo.download,
         jiexiUrl: this.siteInfo.jiexiUrl,
         group: this.siteInfo.group,
@@ -413,91 +415,10 @@ export default {
       })
       this.editOldkey = ''
     },
-    exportSites () {
-      this.getSites()
-      const arr = [...this.sites]
-      const str = JSON.stringify(arr, null, 2)
-      const options = {
-        filters: [
-          { name: 'JSON file', extensions: ['json'] }
-        ]
-      }
-      remote.dialog.showSaveDialog(options).then(result => {
-        if (!result.canceled) {
-          if (!result.filePath.endsWith('.json')) result.filePath += '.json'
-          fs.writeFileSync(result.filePath, str)
-          this.$message.success('已保存成功')
-        }
-      }).catch(err => {
-        this.$message.error(err)
-      })
-    },
-    importSites () {
-      if (this.checkAllSitesLoading) {
-        this.$message.info('正在检测, 请勿操作.')
-        return false
-      }
-      const options = {
-        filters: [
-          { name: '支持的文件格式', extensions: ['json', 'txt'] }
-        ],
-        properties: ['openFile', 'multiSelections']
-      }
-      remote.dialog.showOpenDialog(options).then(result => {
-        if (!result.canceled) {
-          result.filePaths.forEach(file => {
-            if (file.endsWith('json')) {
-              const str = fs.readFileSync(file)
-              const json = JSON.parse(str)
-              json.forEach(ele => {
-                if (ele.api && this.sites.filter(x => x.key === ele.key).length === 0 && this.sites.filter(x => x.name === ele.name && x.api === ele.api).length === 0) {
-                  // 不含该key 同时也不含名字和url一样的
-                  if (ele.isActive === undefined) {
-                    ele.isActive = true
-                  }
-                  if (ele.group === undefined) {
-                    ele.group = '导入'
-                  }
-                  this.sites.push(ele)
-                }
-              })
-              this.resetId(this.sites)
-              sites.clear().then(sites.bulkAdd(this.sites))
-              this.$message.success('导入成功')
-              this.getSites()
-            }
-            if (file.endsWith('txt')) {
-              try {
-                const txt = fs.readFileSync(file, 'utf8')
-                const json = JSON.parse(txt)
-                json.forEach(ele => {
-                  if (ele.api && this.sites.filter(x => x.key === ele.key).length === 0 && this.sites.filter(x => x.name === ele.name && x.api === ele.api).length === 0) {
-                    // 不含该key 同时也不含名字和url一样的
-                    if (ele.isActive === undefined) {
-                      ele.isActive = true
-                    }
-                    if (ele.group === undefined) {
-                      ele.group = '导入'
-                    }
-                    this.sites.push(ele)
-                  }
-                })
-                this.resetId(this.sites)
-                sites.clear().then(sites.bulkAdd(this.sites))
-                this.$message.success('导入成功')
-                this.getSites()
-              } catch (error) {
-                this.$message.warning('导入失败')
-              }
-            }
-          })
-        }
-      })
-    },
     resetSitesEvent () {
       let url = this.setting.sitesDataURL
       if (!url) {
-        url = 'https://raw.iqiq.io/Hunlongyu/ZY-Player-Resources/main/Sites/20220713.json'
+        url = 'https://raw.githubusercontent.com/A942199/yuan/refs/heads/main/TV.json'
       }
       zy.getDefaultSites(url).then(res => {
         if (res.length > 0) {

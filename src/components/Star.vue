@@ -1,8 +1,6 @@
 <template>
   <div class="listpage" id="star">
     <div class="listpage-header" id="star-header">
-        <el-button @click.stop="exportFavoritesEvent" icon="el-icon-upload2" title="导出全部，自动添加扩展名">导出</el-button>
-        <el-button @click.stop="importFavoritesEvent" icon="el-icon-download" title="支持同时导入多个文件">导入</el-button>
         <el-button @click.stop="removeSelectedItems" icon="el-icon-delete-solid">{{ multipleSelection.length === 0 ? "清空" : "删除所选" }}</el-button>
         <b-button-group>
           <el-switch v-model="onlyShowItemsHasUpdate" active-text="有更新" inactive-text="全部" @change="refreshFilteredList"></el-switch>
@@ -115,7 +113,6 @@
             width="200">
             <template slot-scope="scope">
               <el-button @click.stop="playEvent(scope.row)" type="text">播放</el-button>
-              <el-button @click.stop="shareEvent(scope.row)" type="text">分享</el-button>
               <el-button @click.stop="downloadEvent(scope.row)" type="text">下载</el-button>
               <el-button @click.stop="deleteEvent(scope.row)" type="text">删除</el-button>
             </template>
@@ -155,7 +152,6 @@
                   <div class="operate">
                     <div class="operate-wrap">
                       <span class="o-play" @click="playEvent(props.data)">播放</span>
-                      <span class="o-share" @click="shareEvent(props.data)">分享</span>
                       <span class="o-star" @click="downloadEvent(props.data)">下载</span>
                       <span class="o-star" @click="deleteEvent(props.data)">删除</span>
                     </div>
@@ -179,8 +175,6 @@
 import { mapMutations } from 'vuex'
 import { history, star, sites, setting } from '../lib/dexie'
 import zy from '../lib/site/tools'
-const remote = require('@electron/remote')
-import fs from 'fs'
 import Sortable from 'sortablejs'
 import Waterfall from 'vue-waterfall-plugin'
 const { clipboard } = require('electron')
@@ -236,14 +230,6 @@ export default {
         this.SET_DETAIL(val)
       }
     },
-    share: {
-      get () {
-        return this.$store.getters.getShare
-      },
-      set (val) {
-        this.SET_SHARE(val)
-      }
-    },
     setting: {
       get () {
         return this.$store.getters.getSetting
@@ -286,7 +272,7 @@ export default {
     }
   },
   methods: {
-    ...mapMutations(['SET_VIEW', 'SET_DETAIL', 'SET_VIDEO', 'SET_SHARE', 'SET_SETTING']),
+    ...mapMutations(['SET_VIEW', 'SET_DETAIL', 'SET_VIDEO', 'SET_SETTING']),
     toggleViewMode () {
       this.setting.starViewMode = this.setting.starViewMode === 'picture' ? 'table' : 'picture'
       if (this.setting.starViewMode === 'table') {
@@ -411,13 +397,6 @@ export default {
         this.getFavorites()
       })
     },
-    shareEvent (e) {
-      this.share = {
-        show: true,
-        key: e.key,
-        info: e.detail
-      }
-    },
     checkUpdate ({ row, rowIndex }) {
       if (this.list[rowIndex].hasUpdate) {
         return 'highlight'
@@ -505,76 +484,6 @@ export default {
     getAllsites () {
       sites.all().then(res => {
         this.sites = res
-      })
-    },
-    exportFavoritesEvent () {
-      const arr = [...this.list]
-      const str = JSON.stringify(arr, null, 2)
-      const options = {
-        filters: [
-          { name: 'JSON file', extensions: ['json'] }
-        ]
-      }
-      remote.dialog.showSaveDialog(options).then(result => {
-        if (!result.canceled) {
-          if (!result.filePath.endsWith('.json')) result.filePath += '.json'
-          fs.writeFileSync(result.filePath, str)
-          this.$message.success('导出收藏成功')
-        }
-      }).catch(err => {
-        this.$message.error(err)
-      })
-    },
-    importFavoritesEvent () {
-      const options = {
-        filters: [
-          { name: 'JSON file', extensions: ['json'] }
-        ],
-        properties: ['openFile', 'multiSelections']
-      }
-      remote.dialog.showOpenDialog(options).then(result => {
-        if (!result.canceled) {
-          const starList = Array.from(this.list)
-          let id = this.list.length + 1
-          result.filePaths.forEach(file => {
-            const str = fs.readFileSync(file)
-            const json = JSON.parse(str)
-            json.reverse().forEach(ele => {
-              const starExists = starList.some(x => x.key === ele.key && x.ids === ele.ids)
-              if (!starExists) {
-                const newDetail = {
-                  director: ele.director,
-                  actor: ele.actor,
-                  type: ele.type,
-                  area: ele.area,
-                  lang: ele.lang,
-                  year: ele.year,
-                  last: ele.last,
-                  note: ele.note
-                }
-                const doc = {
-                  id: id,
-                  key: ele.key,
-                  ids: ele.ids,
-                  site: ele.site === undefined ? ele.site = this.sites.find(x => x.key === ele.key) : ele.site,
-                  name: ele.name,
-                  hasUpdate: ele.hasUpdate,
-                  index: ele.index,
-                  rate: ele.rate,
-                  detail: ele.detail === undefined ? newDetail : ele.detail
-                }
-                id += 1
-                starList.push(doc)
-              }
-            })
-          })
-          star.clear().then(star.bulkAdd(starList).then(res => {
-            this.getFavorites()
-            this.$message.success('导入收藏成功')
-          }))
-        }
-      }).catch(err => {
-        this.$message.error(err)
       })
     },
     syncTableData () {

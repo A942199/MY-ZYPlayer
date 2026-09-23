@@ -8,9 +8,7 @@
   "excludeRootClasses": true,
   "excludeR18Films": true,
   "forwardTimeInSec": 5,
-  "waitingTimeInSec": 15,
   "starViewMode": "picture",
-  "recommendationViewMode": "picture",
   "historyViewMode": "picture",
   "searchViewMode": "picture",
   "password": "",
@@ -20,11 +18,8 @@
     "url": "",
     "port": ""
   },
-  "allowPassWhenIptvCheck": true,
-  "autocleanWhenIptvCheck": false,
-  "autoChangeSourceWhenIptvStalling": true,
   "shortcutModified": false,
-  "sitesDataURL": "https://raw.iqiq.io/Hunlongyu/ZY-Player-Resources/main/Sites/20220713.json",
+  "sitesDataURL": "https://raw.githubusercontent.com/A942199/yuan/refs/heads/main/TV.json",
   "rootClassFilter": [
     "电影",
     "电影片",
