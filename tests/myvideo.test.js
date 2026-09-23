@@ -81,6 +81,14 @@ async function testRuntime () {
         }))
         return
       }
+      if (req.url === '/form') {
+        res.setHeader('Content-Type', 'application/json')
+        res.end(JSON.stringify({
+          body: Buffer.concat(chunks).toString('utf8'),
+          contentType: req.headers['content-type'] || ''
+        }))
+        return
+      }
       res.statusCode = 404
       res.end('not found')
     })
@@ -92,7 +100,7 @@ async function testRuntime () {
     'async function getConfig(){ return jsonify({title:"test", processType:typeof process, requireType:typeof require}) }',
     'async function getCards(p){ p=argsify(p)||{}; const r=await $fetch.get(BASE+"/get",{headers:{"X-MyVideo-Test":"yes"}}); const parsed=JSON.parse(r.data); return jsonify({list:[{vod_id:"1",vod_name:String(parsed.ok),ext:{id:"1"}}],page:p.page||1}) }',
     'async function getTracks(){ return jsonify({list:[{title:"line",tracks:[{name:"ep1",ext:{url:BASE+"/video",ep:"1"}}]}]}) }',
-    'async function getPlayinfo(){ const r=await $fetch.post(BASE+"/post",JSON.stringify({hello:"world"}),{headers:{"Content-Type":"application/json","X-Post-Test":"posted"}}); const parsed=JSON.parse(r.data); return jsonify({urls:["https://example.test/video.m3u8"],echo:{body:r.data.body||parsed.body,header:r.data.header||parsed.header}}) }',
+    'async function getPlayinfo(){ const r=await $fetch.post(BASE+"/post",JSON.stringify({hello:"world"}),{headers:{"Content-Type":"application/json","X-Post-Test":"posted"}}); const parsed=JSON.parse(r.data); const f=await $fetch.post(BASE+"/form",{device:"abc 123"},{headers:{"Content-Type":"application/x-www-form-urlencoded"}}); const form=JSON.parse(f.data); return jsonify({urls:["https://example.test/video.m3u8"],echo:{body:parsed.body,header:parsed.header,formBody:form.body,formType:form.contentType}}) }',
     'async function search(p){ p=argsify(p)||{}; return jsonify({list:[{vod_id:"s",vod_name:p.text||"",ext:{id:"s"}}],page:1}) }'
   ].join('\n')
 
@@ -116,6 +124,8 @@ async function testRuntime () {
     assert.deepStrictEqual(play.urls, ['https://example.test/video.m3u8'])
     assert.strictEqual(JSON.parse(play.echo.body).hello, 'world')
     assert.strictEqual(play.echo.header, 'posted')
+    assert.strictEqual(play.echo.formBody, 'device=abc%20123')
+    assert(play.echo.formType.includes('application/x-www-form-urlencoded'))
 
     const search = await runtime.call('search', { text: 'needle' })
     assert.strictEqual(search.list[0].vod_name, 'needle')

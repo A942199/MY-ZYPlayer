@@ -119,8 +119,16 @@ class NativeHttpClient {
       }
       let payload = body
       if (payload !== undefined && payload !== null && !Buffer.isBuffer(payload) && typeof payload !== 'string') {
-        payload = JSON.stringify(payload)
-        if (!headers['Content-Type'] && !headers['content-type']) headers['Content-Type'] = 'application/json'
+        const contentType = String(headers['Content-Type'] || headers['content-type'] || '').toLowerCase()
+        if (contentType.includes('application/x-www-form-urlencoded')) {
+          payload = Object.keys(payload).map(key => {
+            const value = payload[key] === undefined || payload[key] === null ? '' : payload[key]
+            return encodeURIComponent(key) + '=' + encodeURIComponent(String(value))
+          }).join('&')
+        } else {
+          payload = JSON.stringify(payload)
+          if (!contentType) headers['Content-Type'] = 'application/json'
+        }
       }
       if (payload !== undefined && payload !== null && !headers['Content-Length'] && !headers['content-length']) {
         headers['Content-Length'] = Buffer.byteLength(payload)
