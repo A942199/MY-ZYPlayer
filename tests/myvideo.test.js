@@ -2,6 +2,7 @@
 
 const assert = require('assert')
 const http = require('http')
+const crypto = require('crypto')
 const path = require('path')
 const cms = require('../src/lib/site/cms')
 const myvideo = require('../src/lib/site/myvideo')
@@ -59,6 +60,45 @@ async function testTvImport () {
   assert.strictEqual(imported[0].sourceKind, 'myvideo')
   assert.strictEqual(imported[0].network, 'native')
   assert.strictEqual(imported[1].sourceKind, 'cms')
+
+  const merged = myvideo.mergeImportedSites([
+    {
+      id: 1,
+      key: 'csp_demo',
+      name: 'Old JS',
+      type: 3,
+      ext: 'https://old.example/demo.js',
+      sourceKind: 'myvideo',
+      configUrl: 'https://example.test/TV.json',
+      isActive: false,
+      network: 'webview',
+      group: '我的分组'
+    },
+    {
+      id: 2,
+      key: 'manual-cms',
+      name: 'Manual CMS',
+      type: 0,
+      api: 'https://manual.example/api.php',
+      sourceKind: 'cms',
+      network: 'native',
+      group: 'CMS',
+      isActive: true
+    }
+  ], imported)
+  const updatedJs = merged.find(site => site.key === 'csp_demo')
+  const manualCms = merged.find(site => site.key === 'manual-cms')
+  assert(updatedJs)
+  assert.strictEqual(updatedJs.name, 'JS')
+  assert.strictEqual(updatedJs.ext, 'https://example.test/demo.js')
+  assert.strictEqual(updatedJs.isActive, false)
+  assert.strictEqual(updatedJs.network, 'webview')
+  assert.strictEqual(updatedJs.group, '我的分组')
+  assert(manualCms)
+  assert.strictEqual(manualCms.api, 'https://manual.example/api.php')
+  assert.strictEqual(manualCms.sourceKind, 'cms')
+  assert.strictEqual(new Set(merged.map(site => site.key)).size, merged.length)
+  assert.deepStrictEqual(merged.map(site => site.id), merged.map((site, index) => index + 1))
 }
 
 async function testRuntime () {
@@ -151,10 +191,44 @@ async function testRuntime () {
   assert.strictEqual(timeoutError.code, 'MYVIDEO_TIMEOUT')
 }
 
+async function testJSEncryptCompat () {
+  const pair = crypto.generateKeyPairSync('rsa', {
+    modulusLength: 1024,
+    publicKeyEncoding: { type: 'spki', format: 'pem' },
+    privateKeyEncoding: { type: 'pkcs1', format: 'pem' }
+  })
+  const privateCipher = crypto.privateEncrypt({
+    key: pair.privateKey,
+    padding: crypto.constants.RSA_PKCS1_PADDING
+  }, Buffer.from('public-decrypt-check')).toString('hex')
+  const code = [
+    'const JSEncrypt = loadJSEncrypt()',
+    'const PUBLIC_KEY = ' + JSON.stringify(pair.publicKey),
+    'const PRIVATE_KEY = ' + JSON.stringify(pair.privateKey),
+    'const PRIVATE_CIPHER = ' + JSON.stringify(privateCipher),
+    'async function getConfig(){ const enc=new JSEncrypt(); enc.setPublicKey(PUBLIC_KEY); const cipher=enc.encrypt("myvideo-rsa"); const rawKey=enc.getKey(); const BI=rawKey.n.constructor; const raw=rawKey.doPublic(new BI(PRIVATE_CIPHER,16)).toString(16); const dec=new JSEncrypt(); dec.setPrivateKey(PRIVATE_KEY); return jsonify({encrypted:!!cipher,plain:dec.decrypt(cipher),modulusHex:rawKey.n.toString(16),raw}) }'
+  ].join('\n')
+  const runtime = new SourceWorker(
+    { key: 'rsa', name: 'rsa', ext: 'memory://rsa.js', network: 'native' },
+    code,
+    { workerPath, modulePath, callTimeout: 2000 }
+  )
+  try {
+    const result = await runtime.call('getConfig')
+    assert.strictEqual(result.encrypted, true)
+    assert.strictEqual(result.plain, 'myvideo-rsa')
+    assert(result.modulusHex.length >= 250)
+    assert(result.raw.endsWith(Buffer.from('public-decrypt-check').toString('hex')))
+  } finally {
+    runtime.terminate()
+  }
+}
+
 async function main () {
   await testCms()
   await testTvImport()
   await testRuntime()
+  await testJSEncryptCompat()
   console.log('MyVideo compatibility unit tests passed')
 }
 

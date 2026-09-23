@@ -225,6 +225,39 @@ function normalizeImportedSite (site, index, configUrl) {
   }
 }
 
+function isManualCmsSite (site) {
+  if (!site || site.configUrl) return false
+  if (site.sourceKind) return site.sourceKind === 'cms'
+  return Number(site.type) !== 3 && typeof site.api === 'string' && /^https?:\/\//i.test(site.api)
+}
+
+function mergeImportedSites (existingSites, importedSites) {
+  const existing = Array.isArray(existingSites) ? existingSites : []
+  const incoming = Array.isArray(importedSites) ? importedSites : []
+  const existingByKey = new Map(existing.filter(site => site && site.key).map(site => [site.key, site]))
+  const manualCms = existing.filter(isManualCmsSite)
+  const manualKeys = new Set(manualCms.map(site => site.key).filter(Boolean))
+  const merged = []
+
+  incoming.forEach(site => {
+    if (!site || !site.key || manualKeys.has(site.key)) return
+    const previous = existingByKey.get(site.key)
+    const next = { ...site }
+    if (previous) {
+      if (Object.prototype.hasOwnProperty.call(previous, 'isActive')) next.isActive = previous.isActive
+      if (previous.network) next.network = previous.network
+      if (previous.group) next.group = previous.group
+    }
+    merged.push(next)
+  })
+
+  manualCms.forEach(site => {
+    if (!merged.some(item => item.key === site.key)) merged.push({ ...site })
+  })
+
+  return merged.map((site, index) => ({ ...site, id: index + 1 }))
+}
+
 function importSites (payload, configUrl) {
   if (typeof payload === 'string') payload = JSON.parse(payload)
   const list = Array.isArray(payload) ? payload : (payload?.sites || [])
@@ -249,5 +282,6 @@ module.exports = {
   isPageOver,
   loadConfig,
   importSites,
+  mergeImportedSites,
   PLAY_PREFIX
 }

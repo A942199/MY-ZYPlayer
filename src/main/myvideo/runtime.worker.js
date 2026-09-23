@@ -5,6 +5,7 @@ const vm = require('vm')
 const http = require('http')
 const https = require('https')
 const zlib = require('zlib')
+const crypto = require('crypto')
 const { URL, URLSearchParams } = require('url')
 
 if (workerData.modulePath) {
@@ -217,6 +218,113 @@ function htmlHelpers () {
   }
 }
 
+class BigIntegerCompat {
+  constructor (value, radix = 10) {
+    if (typeof value === 'bigint') this.value = value
+    else if (Buffer.isBuffer(value)) this.value = BigInt('0x' + (value.toString('hex') || '0'))
+    else {
+      const text = String(value || '0')
+      this.value = radix === 16 ? BigInt('0x' + (text || '0')) : BigInt(text || '0')
+    }
+  }
+
+  toString (radix = 10) {
+    return this.value.toString(radix)
+  }
+}
+
+function readDerNode (buffer, offset) {
+  const tag = buffer[offset]
+  let length = buffer[offset + 1]
+  let header = 2
+  if (length & 0x80) {
+    const count = length & 0x7f
+    length = 0
+    for (let index = 0; index < count; index++) length = (length * 256) + buffer[offset + 2 + index]
+    header += count
+  }
+  const start = offset + header
+  return { tag, start, end: start + length }
+}
+
+function publicModulusBytes (key) {
+  const der = crypto.createPublicKey(key).export({ type: 'spki', format: 'der' })
+  const outer = readDerNode(der, 0)
+  const algorithm = readDerNode(der, outer.start)
+  const bitString = readDerNode(der, algorithm.end)
+  const rsaSequence = readDerNode(der, bitString.start + 1)
+  const modulus = readDerNode(der, rsaSequence.start)
+  let bytes = der.slice(modulus.start, modulus.end)
+  while (bytes.length > 1 && bytes[0] === 0) bytes = bytes.slice(1)
+  return bytes
+}
+
+function bigIntegerBuffer (value, length) {
+  let hex = value.toString(16)
+  if (hex.length % 2) hex = '0' + hex
+  let body = Buffer.from(hex, 'hex')
+  if (body.length > length) body = body.slice(body.length - length)
+  if (body.length < length) body = Buffer.concat([Buffer.alloc(length - body.length), body])
+  return body
+}
+
+class JSEncryptCompat {
+  setPublicKey (key) {
+    this.publicKey = String(key || '')
+  }
+
+  setPrivateKey (key) {
+    this.privateKey = String(key || '')
+  }
+
+  setKey (key) {
+    const value = String(key || '')
+    if (value.includes('PRIVATE KEY')) this.setPrivateKey(value)
+    else this.setPublicKey(value)
+  }
+
+  getKey () {
+    const publicKey = this.publicKey
+    if (!publicKey) return null
+    const modulus = publicModulusBytes(publicKey)
+    const n = new BigIntegerCompat(modulus)
+    return {
+      n,
+      doPublic: input => {
+        const raw = crypto.publicDecrypt({
+          key: publicKey,
+          padding: crypto.constants.RSA_NO_PADDING
+        }, bigIntegerBuffer(input.value, modulus.length))
+        return new BigIntegerCompat(raw)
+      }
+    }
+  }
+
+  encrypt (value) {
+    try {
+      if (!this.publicKey) return false
+      return crypto.publicEncrypt({
+        key: this.publicKey,
+        padding: crypto.constants.RSA_PKCS1_PADDING
+      }, Buffer.from(String(value), 'utf8')).toString('base64')
+    } catch (error) {
+      return false
+    }
+  }
+
+  decrypt (value) {
+    try {
+      if (!this.privateKey) return false
+      return crypto.privateDecrypt({
+        key: this.privateKey,
+        padding: crypto.constants.RSA_PKCS1_PADDING
+      }, Buffer.from(String(value), 'base64')).toString('utf8')
+    } catch (error) {
+      return false
+    }
+  }
+}
+
 function storageApi (map) {
   return {
     get: key => map.get(String(key)),
@@ -269,6 +377,7 @@ const sandbox = {
   jsonify,
   createCheerio: () => cheerio,
   createCryptoJS: () => CryptoJS,
+  loadJSEncrypt: () => JSEncryptCompat,
   b64encode: value => Buffer.from(String(value), 'utf8').toString('base64'),
   b64decode: value => Buffer.from(String(value), 'base64').toString('utf8'),
   atob: value => Buffer.from(String(value), 'base64').toString('binary'),

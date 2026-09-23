@@ -21,6 +21,13 @@ function messageOf (error) {
     .slice(0, 160)
 }
 
+function stageError (row, stage, error) {
+  const kind = classifyError(error)
+  row[stage] = kind
+  row.errors.push({ stage, kind, message: messageOf(error) })
+  return kind
+}
+
 async function probe (site) {
   const source = {
     key: site.key || site.api,
@@ -37,59 +44,122 @@ async function probe (site) {
     tracks: 'skip',
     play: 'skip',
     search: 'skip',
-    result: 'direct'
+    tabs: 0,
+    tabsTried: 0,
+    defaultEmpty: false,
+    selectedTab: '',
+    result: 'source-failure',
+    errors: []
   }
+
+  let config
   try {
-    const config = await manager.call(source, 'getConfig')
+    config = await manager.call(source, 'getConfig')
     row.config = 'ok'
-    const tab = config && config.tabs && config.tabs[0]
-    if (tab) {
+  } catch (error) {
+    stageError(row, 'config', error)
+  }
+
+  let card
+  if (row.config === 'ok') {
+    const tabs = Array.isArray(config && config.tabs) ? config.tabs : []
+    row.tabs = tabs.length
+    let sawSuccessfulEmpty = false
+    let lastCardsError = null
+
+    for (let index = 0; index < tabs.length; index++) {
+      const tab = tabs[index]
       const ext = tab.ext || {}
-      const cards = await manager.call(source, 'getCards', {
-        ...ext,
-        id: ext.id || tab.id || '',
-        ext,
-        page: 1
-      })
-      row.cards = 'ok'
-      const card = cards && cards.list && cards.list[0]
-      if (card) {
-        const cardExt = card.ext || {}
-        const tracks = await manager.call(source, 'getTracks', {
-          ...cardExt,
-          id: card.vod_id || card.id || cardExt.id || '',
-          ext: cardExt
+      row.tabsTried++
+      try {
+        const cards = await manager.call(source, 'getCards', {
+          ...ext,
+          id: ext.id || tab.id || '',
+          ext,
+          page: 1
         })
-        row.tracks = 'ok'
-        const group = tracks && tracks.list && tracks.list[0]
-        const track = group && (group.tracks || group.list) && (group.tracks || group.list)[0]
-        if (track) {
-          const trackExt = track.ext || {}
-          const play = await manager.call(source, 'getPlayinfo', {
-            ...trackExt,
-            url: track.url || trackExt.url,
-            ep: track.ep || trackExt.ep,
-            ext: trackExt
-          })
-          row.play = play && play.urls && play.urls.length ? 'ok' : 'empty'
+        const list = cards && Array.isArray(cards.list) ? cards.list : []
+        if (!list.length) {
+          sawSuccessfulEmpty = true
+          if (index === 0) row.defaultEmpty = true
+          continue
         }
+        row.cards = 'ok'
+        row.selectedTab = tab.name || String(tab.id || index)
+        card = list[0]
+        break
+      } catch (error) {
+        lastCardsError = error
+        if (index === 0) row.defaultEmpty = true
       }
     }
+
+    if (!card) {
+      if (sawSuccessfulEmpty) {
+        row.cards = 'empty'
+        row.errors.push({ stage: 'cards', kind: 'empty', message: 'No cards in any configured tab' })
+      } else if (lastCardsError) {
+        stageError(row, 'cards', lastCardsError)
+      } else {
+        row.cards = 'empty'
+        row.errors.push({ stage: 'cards', kind: 'empty', message: 'No configured tabs or cards' })
+      }
+    }
+  }
+
+  let track
+  if (card) {
+    const cardExt = card.ext || {}
+    try {
+      const tracks = await manager.call(source, 'getTracks', {
+        ...cardExt,
+        id: card.vod_id || card.id || cardExt.id || '',
+        ext: cardExt
+      })
+      const group = tracks && Array.isArray(tracks.list) && tracks.list[0]
+      track = group && (group.tracks || group.list) && (group.tracks || group.list)[0]
+      row.tracks = track ? 'ok' : 'empty'
+      if (!track) row.errors.push({ stage: 'tracks', kind: 'empty', message: 'No tracks returned' })
+    } catch (error) {
+      stageError(row, 'tracks', error)
+    }
+  }
+
+  if (track) {
+    const trackExt = track.ext || {}
+    try {
+      const play = await manager.call(source, 'getPlayinfo', {
+        ...trackExt,
+        url: track.url || trackExt.url,
+        ep: track.ep || trackExt.ep,
+        ext: trackExt
+      })
+      row.play = play && Array.isArray(play.urls) && play.urls.length ? 'ok' : 'empty'
+      if (row.play === 'empty') row.errors.push({ stage: 'play', kind: 'empty', message: 'No playable URL returned' })
+    } catch (error) {
+      stageError(row, 'play', error)
+    }
+  }
+
+  if (row.config === 'ok') {
     try {
       const search = await manager.call(source, 'search', { text: '测试', page: 1 })
-      row.search = search && Array.isArray(search.list) ? 'ok' : 'empty'
+      row.search = search && Array.isArray(search.list) ? (search.list.length ? 'ok' : 'empty') : 'empty'
     } catch (error) {
-      row.search = classifyError(error)
+      stageError(row, 'search', error)
     }
-  } catch (error) {
-    const kind = classifyError(error)
-    if (row.config === 'skip') row.config = kind
-    else if (row.cards === 'skip') row.cards = kind
-    else if (row.tracks === 'skip') row.tracks = kind
-    else if (row.play === 'skip') row.play = kind
-    row.result = kind === 'webview' ? 'webview-candidate' : (kind === 'runtime' ? 'polyfill/runtime' : 'source-failure')
-    row.error = messageOf(error)
   }
+
+  const kinds = row.errors.map(item => item.kind)
+  if (kinds.includes('runtime')) row.result = 'polyfill/runtime'
+  else if (kinds.includes('webview')) row.result = 'webview-candidate'
+  else if (row.config === 'ok' && row.cards === 'ok' && row.tracks === 'ok' && row.play === 'ok') {
+    row.result = row.defaultEmpty ? 'direct-fallback-tab' : 'direct'
+  } else {
+    row.result = 'source-failure'
+  }
+
+  if (!row.errors.length) delete row.errors
   return row
 }
 
@@ -115,11 +185,7 @@ async function main () {
     acc[row.result] = (acc[row.result] || 0) + 1
     return acc
   }, {})
-  console.log(JSON.stringify({
-    total: rows.length,
-    summary,
-    problems: rows.filter(row => row.result !== 'direct' || row.play === 'empty')
-  }, null, 2))
+  console.log(JSON.stringify({ total: rows.length, summary, rows }))
   if (!rows.length) process.exitCode = 1
 }
 

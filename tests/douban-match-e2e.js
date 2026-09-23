@@ -8,11 +8,22 @@ const path = require('path')
 const { spawn } = require('child_process')
 const WebSocket = require('ws')
 
-const exe = path.resolve(__dirname, '..', 'dist_electron', 'win-unpacked', 'MY-ZYPlayer.exe')
+const defaultExe = path.resolve(__dirname, '..', 'dist_electron', 'win-unpacked', 'MY-ZYPlayer.exe')
+const exe = process.argv[2] && !process.argv[2].startsWith('--') ? path.resolve(process.argv[2]) : defaultExe
 const cdpPort = 9242
 const profile = path.join(os.tmpdir(), 'my-zyplayer-douban-match-' + process.pid)
 const subjectYears = new Map()
 let cmsHitTitle = ''
+const mockSubjects = [
+  {
+    item: { id: '9000001', title: '年会不能停！2', url: 'https://movie.douban.com/subject/9000001/', cover: '', rate: '8.1', kind: 'movie' },
+    detail: { id: '9000001', title: '年会不能停！2', originalTitle: 'Annual Meeting 2', year: 2026, kind: 'movie', director: '测试导演甲', cast: '测试演员甲' }
+  },
+  {
+    item: { id: '9000002', title: '罗斯', url: 'https://movie.douban.com/subject/9000002/', cover: '', rate: '7.7', kind: 'movie' },
+    detail: { id: '9000002', title: '罗斯', originalTitle: 'Rose', year: 2025, kind: 'movie', director: '测试导演乙', cast: '测试演员乙' }
+  }
+]
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 
@@ -30,6 +41,57 @@ function startMockServer () {
     const server = http.createServer((req, res) => {
       const origin = 'http://127.0.0.1:' + server.address().port
       const target = new URL(req.url, origin)
+
+      if (target.pathname === '/j/search_subjects') {
+        json(res, {
+          subjects: mockSubjects.map(row => ({
+            id: row.item.id,
+            title: row.item.title,
+            url: row.item.url,
+            cover: row.item.cover,
+            rate: row.item.rate,
+            episodes_info: '',
+            directors: [row.detail.director],
+            casts: [row.detail.cast]
+          }))
+        })
+        return
+      }
+
+      if (target.pathname === '/search') {
+        const query = target.searchParams.get('q') || ''
+        const rows = mockSubjects.filter(row => !query || row.detail.title === query)
+        const body = Buffer.from('<html><body>' + rows.map(row =>
+          '<div class="result"><h3><a href="https://movie.douban.com/subject/' + row.item.id + '/">' + row.detail.title + '</a></h3>' +
+          '<span class="subject-cast">' + row.detail.originalTitle + ' / ' + row.detail.director + ' / ' + row.detail.cast + ' / ' + row.detail.year + '</span></div>'
+        ).join('') + '</body></html>')
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Length': body.length })
+        res.end(body)
+        return
+      }
+
+      const subjectMatch = target.pathname.match(/^\/subject\/(\d+)\/?$/)
+      if (subjectMatch) {
+        const row = mockSubjects.find(entry => entry.item.id === subjectMatch[1])
+        if (!row) {
+          res.writeHead(404)
+          res.end()
+          return
+        }
+        const body = Buffer.from('<html><body>' +
+          '<span property="v:itemreviewed">' + row.detail.title + '</span>' +
+          '<span class="year">(' + row.detail.year + ')</span>' +
+          '<div id="info">原名: ' + row.detail.originalTitle + '\n又名: ' + row.detail.title + '\n导演: ' + row.detail.director + '</div>' +
+          '<strong property="v:average">' + row.item.rate + '</strong>' +
+          '<span property="v:summary">本机确定性豆瓣详情</span>' +
+          '<a rel="v:directedBy">' + row.detail.director + '</a>' +
+          '<a rel="v:starring">' + row.detail.cast + '</a>' +
+          '<span property="v:genre">剧情</span>' +
+          '</body></html>')
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Length': body.length })
+        res.end(body)
+        return
+      }
 
       if (target.pathname === '/media.mp4') {
         const body = Buffer.from('my-zyplayer-local-video-probe')
@@ -77,6 +139,22 @@ function startMockServer () {
               }]
             : []
         })
+        return
+      }
+
+      if (target.pathname === '/cms-xml') {
+        const detailHit = target.searchParams.get('ids') === 'xml1'
+        const text = target.searchParams.get('wd') || ''
+        const hit = detailHit || text === cmsHitTitle
+        const title = hit ? cmsHitTitle : ''
+        const year = hit ? (subjectYears.get(cmsHitTitle) || '') : ''
+        const video = hit
+          ? '<video><id>xml1</id><name>' + title + '</name><year>' + year + '</year>' +
+            (detailHit ? '<dl><dd flag="xml">正片$' + origin + '/media.mp4</dd></dl>' : '') + '</video>'
+          : ''
+        const body = Buffer.from('<?xml version="1.0"?><rss><list page="1" pagecount="1" pagesize="20" recordcount="' + (hit ? '1' : '0') + '">' + video + '</list></rss>')
+        res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8', 'Content-Length': body.length })
+        res.end(body)
         return
       }
 
@@ -175,7 +253,12 @@ async function main () {
     '--user-data-dir=' + profile
   ], {
     cwd: path.dirname(exe),
-    stdio: 'ignore'
+    stdio: 'ignore',
+    env: {
+      ...process.env,
+      MY_ZYPLAYER_DOUBAN_MOVIE_ORIGIN: base,
+      MY_ZYPLAYER_DOUBAN_SEARCH_ORIGIN: base
+    }
   })
 
   let cdp
@@ -216,6 +299,7 @@ async function main () {
       return JSON.stringify(out)
     })()`))
     assert(subjects.length >= 2, 'Need two Douban movie subjects for deterministic match E2E')
+    assert.deepStrictEqual(subjects.map(row => row.detail.title), mockSubjects.map(row => row.detail.title))
 
     for (const row of subjects) subjectYears.set(row.detail.title, row.detail.year)
     cmsHitTitle = subjects[0].detail.title
@@ -243,6 +327,19 @@ async function main () {
         key: 'cms-e2e',
         name: 'CMS E2E',
         api: base + '/cms',
+        type: 0,
+        sourceKind: 'cms',
+        group: 'CMS',
+        isActive: true,
+        reverseOrder: false
+      }
+    }
+
+    function cmsXmlSite () {
+      return {
+        key: 'cms-e2e-xml',
+        name: 'CMS E2E XML',
+        api: base + '/cms-xml',
         type: 0,
         sourceKind: 'cms',
         group: 'CMS',
@@ -304,22 +401,26 @@ async function main () {
       throw new Error('Douban scan did not complete: ' + JSON.stringify(state))
     }
 
-    await replaceSites([cmsSite(), bdSite('fast', 'fast'), bdSite('slow', 'slow')])
+    await replaceSites([cmsSite(), cmsXmlSite(), bdSite('fast', 'fast'), bdSite('slow', 'slow')])
     const cmsRun = await runSubject(subjects[0])
     const cmsState = cmsRun.state
     assert.strictEqual(cmsState.status, 'complete')
     assert(cmsState.top5.length > 0, 'CMS scenario returned no playable provider')
     assert.strictEqual(cmsState.top5[0].providerKind, 'CMS')
+    assert.strictEqual(cmsState.cmsCompleted, 2, 'JSON/XML CMS phase did not exhaust both CMS providers')
+    assert(cmsState.top5.every(row => row.providerKind === 'CMS'), 'CMS hit scenario admitted a BD provider')
+    assert(cmsState.top5.some(row => row.site.name === 'CMS E2E'), 'JSON CMS was not admitted')
+    assert(cmsState.top5.some(row => row.site.name === 'CMS E2E XML'), 'XML CMS was not admitted')
     assert.strictEqual(cmsState.bdCompleted, 0, 'BD fallback ran despite a verified CMS match')
     assert.strictEqual(cmsState.firstPlayable.providerKind, 'CMS')
 
-    await replaceSites([cmsSite(), bdSite('fast', 'fast'), bdSite('slow', 'slow')])
+    await replaceSites([cmsSite(), cmsXmlSite(), bdSite('fast', 'fast'), bdSite('slow', 'slow')])
     const bdRun = await runSubject(subjects[1])
     const bdState = bdRun.state
     assert.strictEqual(bdState.status, 'complete')
     assert(bdState.top5.length >= 2, 'BD exhaustive scan did not retain both playable providers')
     assert.strictEqual(bdState.top5[0].providerKind, 'BD')
-    assert.strictEqual(bdState.cmsCompleted, 1)
+    assert.strictEqual(bdState.cmsCompleted, 2)
     assert.strictEqual(bdState.bdCompleted, 2, 'BD fallback stopped before exhaustive completion')
     assert.strictEqual(bdState.firstPlayable.providerKind, 'BD')
     assert.strictEqual(bdRun.sawEarlyFirstPlayable, true, 'First playable was not surfaced before exhaustive BD completion')
@@ -328,6 +429,8 @@ async function main () {
       cms: {
         title: subjects[0].detail.title,
         provider: cmsState.top5[0].site.name,
+        providers: cmsState.top5.map(row => row.site.name),
+        cmsCompleted: cmsState.cmsCompleted,
         bdCompleted: cmsState.bdCompleted
       },
       fallback: {

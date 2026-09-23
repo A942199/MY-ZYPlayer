@@ -348,6 +348,7 @@ export default {
       siteSearchCount: 0,
       infiniteHandlerCount: 0,
       listGeneration: 0,
+      listComplete: false,
       // Toolbar
       showToolbar: false,
       selectedAreas: [],
@@ -565,6 +566,9 @@ export default {
     async siteClick (siteName, allowFallback = false, attemptedKeys = []) {
       const generation = ++this.listGeneration
       this.list = []
+      this.filteredList = []
+      this.statusText = ' '
+      this.listComplete = false
       const target = this.sites.find(x => x.name === siteName)
       if (!target) return
       this.site = target
@@ -589,7 +593,8 @@ export default {
         }
         if (generation !== this.listGeneration) return
         if (!this.classList.length) throw new Error('源未返回分类')
-        this.classClick(this.type.name)
+        const loaded = await this.classClick(this.type.name, generation)
+        if (loaded === false) throw new Error('源首屏加载失败')
       } catch (error) {
         if (generation !== this.listGeneration) return
         console.error('加载源失败:', this.site.name, error)
@@ -597,6 +602,7 @@ export default {
         this.filteredList = []
         this.classList = []
         this.type = {}
+        this.listComplete = true
         this.statusText = '源加载失败'
         if (allowFallback) {
           const attempted = attemptedKeys.concat(this.site.key)
@@ -619,34 +625,54 @@ export default {
         this.classClick(this.type.name)
       })
     },
-    classClick (className) {
-      const generation = ++this.listGeneration
+    async classClick (className, generation) {
+      if (generation === undefined) generation = ++this.listGeneration
+      if (generation !== this.listGeneration) return
       this.list = []
+      this.filteredList = []
+      this.statusText = ' '
+      this.listComplete = false
       this.type = this.classList.find(x => x.name === className)
       this.infiniteHandlerCount = 0
       if (!this.type) {
         this.type = this.classList[0]
       }
       if (!this.type) {
+        this.listComplete = true
         this.statusText = '暂无分类'
-        return
+        return false
       }
       if (this.type.name.endsWith('剧')) this.selectedAreas = []
       const cacheKey = this.site.key + '@' + this.type.tid
-      if (FILM_DATA_CACHE[cacheKey]) {
-        this.totalpagecount = FILM_DATA_CACHE[cacheKey].totalpagecount
-        this.pagecount = FILM_DATA_CACHE[cacheKey].pagecount
-        this.recordcount = FILM_DATA_CACHE[cacheKey].recordcount
-        this.list = FILM_DATA_CACHE[cacheKey].list
-        this.areas = FILM_DATA_CACHE[cacheKey].areas
-      } else {
-        zy.page(this.site.key, this.type.tid).then(res => {
-          if (generation !== this.listGeneration) return
-          this.totalpagecount = res.pagecount
-          this.pagecount = res.pagecount
-          this.recordcount = res.recordcount
-          this.infiniteId += 1
-        })
+      const cached = FILM_DATA_CACHE[cacheKey]
+      if (cached && Array.isArray(cached.list)) {
+        this.totalpagecount = Number(cached.totalpagecount) || Number(cached.pagecount) || 0
+        this.pagecount = Number(cached.pagecount) || 0
+        this.recordcount = Number(cached.recordcount) || 0
+        this.list = cached.list.slice()
+        this.areas = Array.isArray(cached.areas) ? cached.areas.slice() : []
+        this.listComplete = Boolean(cached.complete)
+        this.infiniteId += 1
+        return true
+      }
+      try {
+        const res = await zy.page(this.site.key, this.type.tid)
+        if (generation !== this.listGeneration) return
+        this.totalpagecount = Number(res && res.pagecount) || 1
+        this.pagecount = this.totalpagecount
+        this.recordcount = Number(res && res.recordcount) || 0
+        await this.loadPage(generation)
+        if (generation !== this.listGeneration) return
+        this.infiniteId += 1
+        return true
+      } catch (error) {
+        if (generation !== this.listGeneration) return
+        console.error('加载分类失败:', this.site.name, this.type.name, error)
+        this.list = []
+        this.filteredList = []
+        this.listComplete = true
+        this.statusText = '源加载失败'
+        return false
       }
     },
     getClass () {
@@ -682,64 +708,68 @@ export default {
     toFlipPagecount () {
       return this.site.reverseOrder
     },
-    infiniteHandler ($state) {
+    async loadPage (generation) {
       const key = this.site.key
       const typeTid = this.type.tid
-      const generation = this.listGeneration
+      if (generation !== this.listGeneration || key === undefined || typeTid === undefined) return { stale: true }
+      if (this.listComplete) return { complete: true }
       let page = this.pagecount
-      if (this.toFlipPagecount()) {
-        page = this.totalpagecount - this.pagecount + 1
+      if (this.toFlipPagecount()) page = this.totalpagecount - this.pagecount + 1
+      if (page < 1 || page > this.totalpagecount) {
+        this.listComplete = true
+        this.statusText = this.list.length ? ' ' : '暂无数据'
+        return { complete: true }
       }
       this.statusText = ' '
-      if (key === undefined || page < 1 || page > this.totalpagecount || typeTid === undefined) {
+      try {
+        let res = await zy.list(key, page, typeTid)
+        if (generation !== this.listGeneration || key !== this.site.key || typeTid !== this.type.tid) return { stale: true }
+        this.pagecount -= 1
+        const type = Object.prototype.toString.call(res)
+        if (type === '[object Array]') {
+          res = res.filter(e => e.dl.dd && (e.dl.dd._t || (Object.prototype.toString.call(e.dl.dd) === '[object Array]' && e.dl.dd.some(i => i._t))))
+          this.list.push(...(this.toFlipPagecount() ? res : res.reverse()))
+        } else if (type === '[object Object]') {
+          if (res.dl.dd && (res.dl.dd._t || (Object.prototype.toString.call(res.dl.dd) === '[object Array]' && res.dl.dd.some(e => e._t)))) this.list.push(res)
+        }
+        const complete = zy.isPageOver(key, typeTid, page) || this.pagecount < 1
+        this.listComplete = complete
+        const cacheKey = this.site.key + '@' + typeTid
+        FILM_DATA_CACHE[cacheKey] = {
+          totalpagecount: this.totalpagecount,
+          pagecount: this.pagecount,
+          recordcount: this.recordcount,
+          list: this.list.slice(),
+          areas: [...new Set(this.list.map(ele => ele.area))].filter(x => x),
+          complete
+        }
+        if (!this.list.length && complete) this.statusText = '暂无数据'
+        return { complete }
+      } catch (error) {
+        if (generation !== this.listGeneration || key !== this.site.key || typeTid !== this.type.tid) return { stale: true }
+        console.error('加载列表失败:', this.site.name, error)
+        this.listComplete = true
+        this.statusText = this.list.length ? ' ' : '源加载失败'
+        throw error
+      }
+    },
+    infiniteHandler ($state) {
+      const generation = this.listGeneration
+      if (this.listComplete) {
         $state.complete()
-        this.statusText = '暂无数据'
-        return false
+        if (!this.list.length) this.statusText = '暂无数据'
+        return
       }
-      if (this.showToolbar && this.filteredList.length && this.filteredList.length < 10) {
-        this.infiniteHandlerCount++
-      }
+      if (this.showToolbar && this.filteredList.length && this.filteredList.length < 10) this.infiniteHandlerCount++
       const interval = this.setting.view === 'picture' ? 1200 : 300
       setTimeout(() => {
-        if (generation !== this.listGeneration || key !== this.site.key || typeTid !== this.type.tid) return
-        zy.list(key, page, typeTid).then(res => {
-          if (generation !== this.listGeneration || key !== this.site.key || typeTid !== this.type.tid) return
-          if (res) {
-            this.pagecount -= 1
-            const type = Object.prototype.toString.call(res)
-            if (type === '[object Array]') {
-              // 过滤掉无链接的项
-              res = res.filter(e => e.dl.dd && (e.dl.dd._t || (Object.prototype.toString.call(e.dl.dd) === '[object Array]' && e.dl.dd.some(i => i._t))))
-              if (!this.toFlipPagecount()) {
-                // zy.list 返回的是按时间从旧到新排列, 我门需要翻转为从新到旧
-                this.list.push(...res.reverse())
-              } else {
-                // 如果是需要解析的视频网站，zy.list已经是按从新到旧排列
-                this.list.push(...res)
-              }
-            } else if (type === '[object Object]') {
-              if (res.dl.dd && (res.dl.dd._t || (Object.prototype.toString.call(res.dl.dd) === '[object Array]' && res.dl.dd.some(e => e._t)))) {
-                this.list.push(res)
-              }
-            }
-            if (zy.isPageOver(key, typeTid, page)) {
-              $state.complete()
-            } else {
-              $state.loaded()
-            }
-            // 更新缓存数据
-            const cacheKey = this.site.key + '@' + typeTid
-            FILM_DATA_CACHE[cacheKey] = {
-              pagecount: this.pagecount,
-              recordcount: this.recordcount,
-              list: this.list
-            }
-          }
-        }).catch(error => {
-          if (generation !== this.listGeneration || key !== this.site.key || typeTid !== this.type.tid) return
-          console.error('加载列表失败:', this.site.name, error)
-          this.statusText = this.list.length ? ' ' : '源加载失败'
-          $state.complete()
+        if (generation !== this.listGeneration) return
+        this.loadPage(generation).then(result => {
+          if (!result || result.stale || generation !== this.listGeneration) return
+          if (result.complete) $state.complete()
+          else $state.loaded()
+        }).catch(() => {
+          if (generation === this.listGeneration) $state.complete()
         })
       }, (this.infiniteHandlerCount <= 1 ? 0 : this.infiniteHandlerCount - 1) * interval)
     },

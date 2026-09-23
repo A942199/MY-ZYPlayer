@@ -79,6 +79,29 @@ async function main () {
   assert.strictEqual(wrongSeason.accepted, false)
   assert(wrongSeason.reasons.includes('season_mismatch'))
 
+  const wrongEpisode = scoreIdentity(
+    { ...identity, episode: 1 },
+    { name: '白色巨塔', year: 2003, episode: 2 },
+    { name: '白色巨塔', year: 2003, kind: 'tv', episode: 2 }
+  )
+  assert.strictEqual(wrongEpisode.accepted, false)
+  assert(wrongEpisode.reasons.includes('episode_mismatch'))
+
+  const unclearSeasonDoesNotConflict = scoreIdentity(
+    { ...identity, season: 2 },
+    { name: '白色巨塔', year: 2003 },
+    { name: '白色巨塔', year: 2003, kind: 'tv' }
+  )
+  assert.strictEqual(unclearSeasonDoesNotConflict.accepted, true)
+
+  const animationMovieConflict = scoreIdentity(
+    { title: '进击的巨人', year: 2026, kind: 'tv' },
+    { name: '进击的巨人', year: 2026 },
+    { name: '进击的巨人', year: 2026, kind: 'movie', type: '动画电影' }
+  )
+  assert.strictEqual(animationMovieConflict.accepted, false)
+  assert(animationMovieConflict.reasons.includes('kind_mismatch'))
+
   const genericEpisodeDoesNotConflict = scoreIdentity(
     { ...identity, episodeIndex: 0 },
     { name: '白色巨塔', year: 2003 },

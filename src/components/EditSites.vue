@@ -99,7 +99,7 @@
      </div>
     <!-- 编辑页面 -->
     <div>
-      <el-dialog :visible.sync="editSiteDialogVisible" v-if='editSiteDialogVisible' :title="dialogTitle" :append-to-body="true" @close="closeDialog">
+      <el-dialog :visible.sync="editSiteDialogVisible" v-if='editSiteDialogVisible' :title="dialogTitle" :append-to-body="true" top="4vh" custom-class="source-edit-dialog" @close="closeDialog">
         <el-form :model="siteInfo" ref='siteInfo' label-width="75px" label-position="left" :rules="rules">
           <el-form-item label="源类型">
             <el-input :value="siteKindLabel" disabled />
@@ -165,6 +165,7 @@
 import { mapMutations } from 'vuex'
 import { sites, setting } from '../lib/dexie'
 import zy from '../lib/site/tools'
+const myvideo = require('../lib/site/myvideo')
 import Sortable from 'sortablejs'
 
 export default {
@@ -427,7 +428,6 @@ export default {
       const randomstring = require('randomstring')
       const doc = {
         key: this.dialogType === 'edit' ? this.siteInfo.key : this.siteInfo.key ? this.siteInfo.key : randomstring.generate(6),
-        id: this.dialogType === 'edit' ? this.siteInfo.id : this.sites.length ? this.sites[this.sites.length - 1].id + 1 : 1,
         name: this.siteInfo.name,
         api: this.siteInfo.api,
         type: this.siteInfo.type,
@@ -441,6 +441,7 @@ export default {
         group: this.siteInfo.group,
         isActive: this.siteInfo.isActive
       }
+      if (this.dialogType === 'edit') doc.id = this.siteInfo.id
       if (!this.isMyVideoSite(this.siteInfo)) {
         doc.type = 0
         doc.ext = ''
@@ -468,20 +469,23 @@ export default {
       })
       this.editOldkey = ''
     },
-    resetSitesEvent () {
+    async resetSitesEvent () {
       let url = this.setting.sitesDataURL
       if (!url) {
         url = 'https://raw.githubusercontent.com/A942199/yuan/refs/heads/main/TV.json'
       }
-      zy.getDefaultSites(url).then(res => {
-        if (res.length > 0) {
-          sites.clear().then(sites.bulkAdd(res))
-          this.$message.success('TV.json 导入/更新成功')
-          this.getSites()
-        }
-      }).catch(error => {
+      try {
+        const imported = await zy.getDefaultSites(url)
+        if (!imported.length) return
+        const existing = await sites.all()
+        const merged = myvideo.mergeImportedSites(existing, imported)
+        await sites.clear()
+        await sites.bulkAdd(merged)
+        this.$message.success('TV.json 导入/更新成功')
+        await this.getSites()
+      } catch (error) {
         this.$message.error('导入云端源站失败. ' + error)
-      })
+      }
     },
     moveToTopEvent (i) {
       if (this.checkAllSitesLoading) {
@@ -585,3 +589,23 @@ export default {
   }
 }
 </script>
+
+<style>
+.source-edit-dialog {
+  max-height: 92vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.source-edit-dialog .el-dialog__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+
+.source-edit-dialog .el-dialog__footer {
+  flex: 0 0 auto;
+}
+</style>

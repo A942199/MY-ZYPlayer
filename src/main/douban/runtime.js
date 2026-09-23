@@ -7,6 +7,8 @@ const cheerio = require('cheerio')
 
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/153 Safari/537.36'
 const MAX_BODY = 3 * 1024 * 1024
+const DOUBAN_MOVIE_ORIGIN = String(process.env.MY_ZYPLAYER_DOUBAN_MOVIE_ORIGIN || 'https://movie.douban.com').replace(/\/+$/, '')
+const DOUBAN_SEARCH_ORIGIN = String(process.env.MY_ZYPLAYER_DOUBAN_SEARCH_ORIGIN || 'https://www.douban.com').replace(/\/+$/, '')
 
 function normalizeHeaders (headers) {
   if (!headers) return {}
@@ -123,7 +125,7 @@ async function listSubjects (payload = {}) {
     page_limit: String(limit),
     page_start: String(start)
   })
-  const response = await requestText('https://movie.douban.com/j/search_subjects?' + query.toString(), {
+  const response = await requestText(DOUBAN_MOVIE_ORIGIN + '/j/search_subjects?' + query.toString(), {
     headers: { Accept: 'application/json,text/plain,*/*', Referer: 'https://movie.douban.com/' }
   })
   if (response.status !== 200) throw new Error('Douban HTTP ' + response.status)
@@ -140,7 +142,7 @@ async function listSubjects (payload = {}) {
 async function searchSubjects (payload = {}) {
   const text = String(payload.text || '').trim()
   if (!text) return { list: [] }
-  const response = await requestText('https://www.douban.com/search?cat=1002&q=' + encodeURIComponent(text), {
+  const response = await requestText(DOUBAN_SEARCH_ORIGIN + '/search?cat=1002&q=' + encodeURIComponent(text), {
     headers: { Referer: 'https://www.douban.com/' }
   })
   if (response.status !== 200) throw new Error('Douban search HTTP ' + response.status)
@@ -195,7 +197,7 @@ function subjectIdFromHref (href) {
 async function subjectFingerprint (id, title) {
   if (!title) return null
   try {
-    const response = await requestText('https://www.douban.com/search?cat=1002&q=' + encodeURIComponent(title), {
+    const response = await requestText(DOUBAN_SEARCH_ORIGIN + '/search?cat=1002&q=' + encodeURIComponent(title), {
       headers: { Referer: 'https://www.douban.com/' }
     })
     if (response.status !== 200) return null
@@ -224,7 +226,7 @@ async function subjectFingerprint (id, title) {
 async function subjectDetail (payload = {}) {
   const id = String(payload.id || '').replace(/[^0-9]/g, '')
   if (!id) throw new Error('Douban subject id is required')
-  const response = await requestText('https://movie.douban.com/subject/' + id + '/', {
+  const response = await requestText(DOUBAN_MOVIE_ORIGIN + '/subject/' + id + '/', {
     maxBytes: MAX_BODY,
     headers: { Referer: 'https://movie.douban.com/' }
   })
