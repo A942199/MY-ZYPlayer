@@ -11,6 +11,7 @@ const WebSocket = require('ws')
 const exe = path.resolve(__dirname, '..', 'dist_electron', 'win-unpacked', 'MY-ZYPlayer.exe')
 const port = 9231
 const profile = path.join(os.tmpdir(), 'my-zyplayer-e2e-' + process.pid)
+const isolatedApp = path.join(os.tmpdir(), 'my-zyplayer-app-e2e-' + process.pid)
 
 function sleep (ms) {
   return new Promise(resolve => setTimeout(resolve, ms))
@@ -80,12 +81,15 @@ async function main () {
   }
   assert(fs.existsSync(exe), 'Build Windows app first: ' + exe)
   fs.rmSync(profile, { recursive: true, force: true })
+  fs.rmSync(isolatedApp, { recursive: true, force: true })
+  fs.cpSync(path.dirname(exe), isolatedApp, { recursive: true })
+  const isolatedExe = path.join(isolatedApp, 'MY-ZYPlayer.exe')
 
-  const child = spawn(exe, [
+  const child = spawn(isolatedExe, [
     '--remote-debugging-port=' + port,
     '--user-data-dir=' + profile
   ], {
-    cwd: path.dirname(exe),
+    cwd: isolatedApp,
     stdio: 'ignore'
   })
 
@@ -107,9 +111,12 @@ async function main () {
     }
 
     const stateExpression = `(() => {
-      const root = document.querySelector('#app').__vue__
-      const app = root.$children[0]
+      const rootElement = document.querySelector('#app')
+      const root = rootElement && rootElement.__vue__
+      const app = root && root.$children && root.$children[0]
+      if (!app) return null
       const film = app.$children.find(component => String(component.$options.name).toLowerCase() === 'film')
+      if (!film) return null
       return JSON.stringify({
         site: film.site && { key: film.site.key, name: film.site.name },
         selectedSiteName: film.selectedSiteName,
@@ -124,10 +131,16 @@ async function main () {
 
     let defaultState
     for (let index = 0; index < 60; index++) {
-      defaultState = JSON.parse(await evaluate(stateExpression))
+      const value = await evaluate(stateExpression)
+      if (!value) {
+        await sleep(500)
+        continue
+      }
+      defaultState = JSON.parse(value)
       if (defaultState.filteredLen > 0 && defaultState.cards > 0) break
       await sleep(500)
     }
+    assert(defaultState, 'Fresh profile Vue app did not become ready')
     assert(defaultState.filteredLen > 0, 'Fresh profile did not render any default-source cards')
     assert(defaultState.cards > 0, 'Fresh profile DOM did not render any cards')
 
@@ -223,6 +236,7 @@ async function main () {
     child.kill()
     await sleep(500)
     fs.rmSync(profile, { recursive: true, force: true })
+    fs.rmSync(isolatedApp, { recursive: true, force: true })
   }
 }
 

@@ -1,3 +1,5 @@
+const { buildMyVideoWorker } = require('./scripts/build-myvideo-worker')
+
 module.exports = {
   publicPath: './',
   pages: {
@@ -17,9 +19,12 @@ module.exports = {
     electronBuilder: {
       nodeIntegration: true,
       builderOptions: {
+        beforePack: async () => {
+          await buildMyVideoWorker()
+        },
         extraResources: [
           {
-            from: 'src/main/myvideo/runtime.worker.js',
+            from: 'build/myvideo/runtime.worker.js',
             to: 'myvideo/runtime.worker.js'
           }
         ],
