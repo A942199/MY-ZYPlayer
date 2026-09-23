@@ -14,6 +14,13 @@
         </g>
       </svg>
     </span>
+    <span :class="[view === 'Douban' ? 'active ': ''] + 'zy-svg'" @click="changeView('Douban')">
+      <svg role="img" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" aria-labelledby="doubanIconTitle">
+        <title id="doubanIconTitle">豆瓣</title>
+        <rect x="3" y="4" width="18" height="16" rx="2"></rect>
+        <path d="M7 8h10M7 12h4M7 16h10M15 11v3"></path>
+      </svg>
+    </span>
     <!-- <span :class="[view === 'Recommendation' ? 'active ': ''] + 'zy-svg'" @click="changeView('Recommendation')">
       <svg role="img" xmlns="http://www.w3.org/2000/svg" width="48px" height="48px" viewBox="0 0 24 24" aria-labelledby="thumbUpIconTitle" stroke="#2329D6" stroke-width="1" stroke-linecap="square" stroke-linejoin="miter" fill="none" color="#2329D6">
       <title id="thumbUpIconTitle">影视推荐</title>

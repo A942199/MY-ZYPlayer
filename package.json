@@ -1,6 +1,6 @@
 {
   "name": "zy",
-  "version": "2.8.12",
+  "version": "2.9.0",
   "private": true,
   "scripts": {
     "serve": "vue-cli-service serve",
@@ -18,7 +18,10 @@
     "postuninstall": "electron-builder install-app-deps",
     "electron:generate-icons": "electron-icon-builder --input=./public/icon.png --output=build --flatten",
     "release": "npm run build:worker && vue-cli-service electron:build -p always",
-    "dist": "npm run build:worker && vue-cli-service electron:build --win --ia32"
+    "dist": "npm run build:worker && vue-cli-service electron:build --win --ia32",
+    "test:douban": "node tests/douban.test.js",
+    "test:douban:integration": "node tests/douban-integration.js",
+    "test:douban:match-e2e": "node tests/douban-match-e2e.js"
   },
   "main": "background.js",
   "dependencies": {

@@ -4,12 +4,14 @@ import { app, protocol, BrowserWindow, globalShortcut, ipcMain } from 'electron'
 import installExtension, { VUEJS_DEVTOOLS } from 'electron-devtools-installer'
 import { initUpdater } from './lib/update/update'
 const { registerMyVideoIpc, applyPlaybackHeaders } = require('./main/myvideo/runtime')
+const { registerDoubanIpc } = require('./main/douban/runtime')
 const path = require('path')
 require('@electron/remote/main').initialize()
 
 const isDevelopment = process.env.NODE_ENV !== 'production'
 
 registerMyVideoIpc(ipcMain)
+registerDoubanIpc(ipcMain)
 
 // const log = require('electron-log') // 用于调试主程序
 

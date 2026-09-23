@@ -4,6 +4,7 @@
     <div class="zy-body">
       <Frame />
       <Film v-show="view === 'Film'" />
+      <Douban v-show="view === 'Douban'" />
       <Play v-show="view === 'Play'" />
       <Star v-show="view === 'Star'" />
       <History v-show="view === 'History'" />
