@@ -3,7 +3,7 @@
     <div class="listpage-header" v-show="!enableBatchEdit">
           <el-switch v-model="enableBatchEdit" active-text="批处理分组">></el-switch>
           <el-button @click="openFilterKeywordsDiag" icon="el-icon-key">关键词过滤</el-button>
-          <el-button @click="addSite" icon="el-icon-document-add">新增</el-button>
+          <el-button @click="addCmsSite" icon="el-icon-document-add">新增 CMS</el-button>
           <el-button @click="checkAllSite" icon="el-icon-refresh" :loading="checkAllSitesLoading" title="可在后台运行">检测{{ this.checkAllSitesLoading ? this.checkProgress + '/' + this.sites.length : '' }}</el-button>
           <el-button @click="resetSitesEvent" icon="el-icon-download" title="从 TV.json URL 重新下载并覆盖当前源列表">导入/更新 TV.json</el-button>
     </div>
@@ -29,6 +29,13 @@
           <el-table-column
             prop="name"
             label="资源名">
+          </el-table-column>
+          <el-table-column
+            label="类型"
+            width="150">
+            <template slot-scope="scope">
+              <span>{{ isMyVideoSite(scope.row) ? 'CatVod/MyVideo' : 'CMS' }}</span>
+            </template>
           </el-table-column>
           <el-table-column
             prop="isActive"
@@ -92,13 +99,23 @@
      </div>
     <!-- 编辑页面 -->
     <div>
-      <el-dialog :visible.sync="editSiteDialogVisible" v-if='editSiteDialogVisible' :title="dialogType==='edit'?'编辑源':'新增源'" :append-to-body="true" @close="closeDialog">
+      <el-dialog :visible.sync="editSiteDialogVisible" v-if='editSiteDialogVisible' :title="dialogTitle" :append-to-body="true" @close="closeDialog">
         <el-form :model="siteInfo" ref='siteInfo' label-width="75px" label-position="left" :rules="rules">
+          <el-form-item label="源类型">
+            <el-input :value="siteKindLabel" disabled />
+          </el-form-item>
           <el-form-item label="源站名" prop='name'>
             <el-input v-model="siteInfo.name" placeholder="请输入源站名" />
           </el-form-item>
           <el-form-item label="API接口" prop='api'>
-            <el-input v-model="siteInfo.api" :autosize="{ minRows: 2, maxRows: 4}" type="textarea" placeholder="请输入API接口地址"/>
+            <el-input
+              v-model="siteInfo.api"
+              :autosize="{ minRows: 2, maxRows: 4}"
+              type="textarea"
+              :placeholder="isMyVideoSite(siteInfo) ? 'CatVod / MyVideo API 标识' : '请输入 CMS API，例如 https://example.com/api.php/provide/vod/；JSON/XML 自动识别'"/>
+          </el-form-item>
+          <el-form-item label="JS脚本" prop='ext' v-if="isMyVideoSite(siteInfo)">
+            <el-input v-model="siteInfo.ext" :autosize="{ minRows: 2, maxRows: 4}" type="textarea" placeholder="CatVod / MyVideo JS URL"/>
           </el-form-item>
           <el-form-item label="下载接口" prop='download'>
             <el-input v-model="siteInfo.download" :autosize="{ minRows: 2, maxRows: 4}" type="textarea" placeholder="请输入Download接口地址，可以空着"/>
@@ -163,9 +180,13 @@ export default {
         key: '',
         name: '',
         api: '',
+        type: 0,
+        ext: '',
+        sourceKind: 'cms',
+        network: 'native',
         download: '',
         jiexiUrl: '',
-        group: '',
+        group: 'CMS',
         isActive: true
       },
       excludeRootClasses: true,
@@ -214,6 +235,17 @@ export default {
         filters.push(doc)
       })
       return filters
+    },
+    dialogTitle () {
+      if (this.dialogType === 'edit') {
+        return this.isMyVideoSite(this.siteInfo) ? '编辑 CatVod / MyVideo 源' : '编辑 CMS 源'
+      }
+      return '新增 CMS 源'
+    },
+    siteKindLabel () {
+      return this.isMyVideoSite(this.siteInfo)
+        ? 'CatVod / MyVideo JS'
+        : 'CMS（JSON / XML 自动识别）'
     }
   },
   watch: {
@@ -316,7 +348,13 @@ export default {
       setting.update(this.setting)
       this.filterKeywordsDialogVisible = false
     },
-    addSite () {
+    isMyVideoSite (site) {
+      if (!site) return false
+      return Number(site.type) === 3 &&
+        typeof site.ext === 'string' &&
+        (String(site.api || '').startsWith('csp_') || /\.js(?:$|\?)/i.test(site.ext))
+    },
+    addCmsSite () {
       if (this.checkAllSitesLoading) {
         this.$message.info('正在检测, 请勿操作.')
         return false
@@ -328,9 +366,13 @@ export default {
         key: '',
         name: '',
         api: '',
+        type: 0,
+        ext: '',
+        sourceKind: 'cms',
+        network: 'native',
         download: '',
         jiexiUrl: '',
-        group: '',
+        group: 'CMS',
         isActive: true
       }
     },
@@ -399,15 +441,26 @@ export default {
         group: this.siteInfo.group,
         isActive: this.siteInfo.isActive
       }
+      if (!this.isMyVideoSite(this.siteInfo)) {
+        doc.type = 0
+        doc.ext = ''
+        doc.sourceKind = 'cms'
+        doc.network = 'native'
+        doc.group = doc.group || 'CMS'
+      }
       if (this.dialogType === 'edit') sites.remove(this.siteInfo.id)
       sites.add(doc).then(res => {
         this.siteInfo = {
           key: '',
           name: '',
           api: '',
+          type: 0,
+          ext: '',
+          sourceKind: 'cms',
+          network: 'native',
           download: '',
           jiexiUrl: '',
-          group: ''
+          group: 'CMS'
         }
         this.dialogType === 'edit' ? this.$message.success('修改成功！') : this.$message.success('新增源成功！')
         this.editSiteDialogVisible = false
