@@ -86,10 +86,20 @@ class NativeHttpClient {
 }
 
 function resolveWorkerPath () {
+  const packagedWorker = process.resourcesPath
+    ? path.join(process.resourcesPath, 'myvideo', 'runtime.worker.js')
+    : null
+  let isPackaged = false
+  try {
+    const electron = require('electron')
+    isPackaged = Boolean(electron.app && electron.app.isPackaged)
+  } catch (e) {}
   const candidates = []
-  if (process.resourcesPath) candidates.push(path.join(process.resourcesPath, 'myvideo', 'runtime.worker.js'))
-  candidates.push(path.join(process.cwd(), 'src', 'main', 'myvideo', 'runtime.worker.js'))
-  candidates.push(path.join(__dirname, 'runtime.worker.js'))
+  if (packagedWorker) candidates.push(packagedWorker)
+  if (!isPackaged) {
+    candidates.push(path.join(process.cwd(), 'src', 'main', 'myvideo', 'runtime.worker.js'))
+    candidates.push(path.join(__dirname, 'runtime.worker.js'))
+  }
   const workerPath = candidates.find(candidate => fs.existsSync(candidate))
   if (!workerPath) throw new Error('Unable to locate MyVideo runtime worker')
   return workerPath

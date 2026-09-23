@@ -16,13 +16,13 @@ module.exports = {
   pluginOptions: {
     electronBuilder: {
       nodeIntegration: true,
-      extraResources: [
-        {
-          from: 'src/main/myvideo/runtime.worker.js',
-          to: 'myvideo/runtime.worker.js'
-        }
-      ],
       builderOptions: {
+        extraResources: [
+          {
+            from: 'src/main/myvideo/runtime.worker.js',
+            to: 'myvideo/runtime.worker.js'
+          }
+        ],
         nsis: {
           oneClick: false,
           allowToChangeInstallationDirectory: true

@@ -84,7 +84,10 @@ async function main () {
   const child = spawn(exe, [
     '--remote-debugging-port=' + port,
     '--user-data-dir=' + profile
-  ], { stdio: 'ignore' })
+  ], {
+    cwd: path.dirname(exe),
+    stdio: 'ignore'
+  })
 
   let cdp
   try {
