@@ -5,7 +5,7 @@
           <el-button @click="openFilterKeywordsDiag" icon="el-icon-key">关键词过滤</el-button>
           <el-button @click="addSite" icon="el-icon-document-add">新增</el-button>
           <el-button @click="checkAllSite" icon="el-icon-refresh" :loading="checkAllSitesLoading" title="可在后台运行">检测{{ this.checkAllSitesLoading ? this.checkProgress + '/' + this.sites.length : '' }}</el-button>
-          <el-button @click="resetSitesEvent" icon="el-icon-refresh-left">重置</el-button>
+          <el-button @click="resetSitesEvent" icon="el-icon-download" title="从 TV.json URL 重新下载并覆盖当前源列表">导入/更新 TV.json</el-button>
     </div>
     <div class="listpage-header" v-show="enableBatchEdit">
           <el-switch v-model="enableBatchEdit" active-text="批处理分组"></el-switch>
@@ -423,7 +423,7 @@ export default {
       zy.getDefaultSites(url).then(res => {
         if (res.length > 0) {
           sites.clear().then(sites.bulkAdd(res))
-          this.$message.success('重置源成功')
+          this.$message.success('TV.json 导入/更新成功')
           this.getSites()
         }
       }).catch(error => {

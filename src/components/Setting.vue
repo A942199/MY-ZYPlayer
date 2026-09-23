@@ -49,13 +49,13 @@
         <div class="title">源管理</div>
         <div class="site-box">
           <div class="zy-select">
-            <div class="vs-placeholder vs-noAfter" @click="editSitesEvent">编辑源</div>
+            <div class="vs-placeholder vs-noAfter" @click="editSitesEvent">打开源管理</div>
           </div>
           <div class="zy-select">
             <div class="vs-placeholder vs-noAfter" @click="show.configDefaultParseUrlDialog = true">设置默认解析接口</div>
           </div>
           <div class="zy-select">
-            <div class="vs-placeholder vs-noAfter" @click="show.configSitesDataUrlDialog = true">设置源站接口文件</div>
+            <div class="vs-placeholder vs-noAfter" @click="show.configSitesDataUrlDialog = true">TV.json 地址</div>
           </div>
         </div>
       </div>
@@ -135,11 +135,11 @@
         </span>
       </el-dialog>
     </div>
-    <div> <!-- 设置源站接口文件 -->
-      <el-dialog :visible="show.configSitesDataUrlDialog" v-if='show.configSitesDataUrlDialog' title="设置源站接口文件" :append-to-body="true" @close="closeDialog">
+    <div> <!-- 设置 TV.json 地址 -->
+      <el-dialog :visible="show.configSitesDataUrlDialog" v-if='show.configSitesDataUrlDialog' title="TV.json 地址" :append-to-body="true" @close="closeDialog">
         <el-form label-width="45px" label-position="left">
           <el-form-item label="URL:">
-            <el-input v-model="setting.sitesDataURL" :autosize="{ minRows: 2, maxRows: 4}" type="textarea" placeholder="请输入解析接口地址，为空时会自动设置，重置时会自动更新默认接口地址"/>
+            <el-input v-model="setting.sitesDataURL" :autosize="{ minRows: 2, maxRows: 4}" type="textarea" placeholder="请输入 TV.json URL；默认使用 A942199/yuan/TV.json"/>
           </el-form-item>
         </el-form>
         <span slot="footer" class="dialog-footer">

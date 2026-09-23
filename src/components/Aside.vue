@@ -40,6 +40,14 @@
             <polyline points="12 5 12 12 16 16"></polyline>
           </svg>
     </span>
+    <span :class="[view === 'EditSites' ? 'active ': ''] + 'zy-svg'" @click="changeView('EditSites')">
+      <svg role="img" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" aria-labelledby="sourcesIconTitle">
+        <title id="sourcesIconTitle">源管理</title>
+        <rect x="4" y="4" width="16" height="5" rx="1"></rect>
+        <rect x="4" y="10" width="16" height="5" rx="1"></rect>
+        <rect x="4" y="16" width="16" height="4" rx="1"></rect>
+      </svg>
+    </span>
     <span :class="[view === 'Setting' ? 'active ': ''] + 'zy-svg'" @click="changeView('Setting')">
       <svg role="img" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" aria-labelledby="settingsIconTitle">
         <title id="settingsIconTitle">设置</title>
