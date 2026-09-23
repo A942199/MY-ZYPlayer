@@ -146,6 +146,47 @@ async function main () {
     assert(xingyaState.filteredLen > 0, 'Xingya data was filtered out')
     assert(xingyaState.cards > 0, 'Xingya cards were not rendered')
 
+    const criticalSources = [
+      '[兔]123TV🎬',
+      '[兔]飞快TV🎬',
+      '[兔]2k动漫(无搜索)🌸',
+      '[兔]月之祠🌸',
+      '[兔]11KT🌸'
+    ]
+    const criticalSourceCards = {}
+    for (const sourceName of criticalSources) {
+      await evaluate(`(() => {
+        const app = document.querySelector('#app').__vue__.$children[0]
+        const film = app.$children.find(component => String(component.$options.name).toLowerCase() === 'film')
+        film.selectedSiteName = ${JSON.stringify(sourceName)}
+        film.siteClick(${JSON.stringify(sourceName)})
+        return true
+      })()`)
+      let sourceState
+      for (let index = 0; index < 60; index++) {
+        sourceState = JSON.parse(await evaluate(stateExpression))
+        if (sourceState.site && sourceState.site.name === sourceName && sourceState.cards > 0) break
+        await sleep(500)
+      }
+      assert.strictEqual(sourceState.site.name, sourceName)
+      assert(sourceState.filteredLen > 0, sourceName + ' data was filtered out')
+      assert(sourceState.cards > 0, sourceName + ' cards were not rendered')
+      criticalSourceCards[sourceName] = sourceState.cards
+    }
+
+    await evaluate(`(() => {
+      const app = document.querySelector('#app').__vue__.$children[0]
+      const film = app.$children.find(component => String(component.$options.name).toLowerCase() === 'film')
+      film.selectedSiteName = '星芽短劇'
+      film.siteClick('星芽短劇')
+      return true
+    })()`)
+    for (let index = 0; index < 60; index++) {
+      xingyaState = JSON.parse(await evaluate(stateExpression))
+      if (xingyaState.site && xingyaState.site.key === 'csp_xingya' && xingyaState.cards > 0) break
+      await sleep(500)
+    }
+
     const clicked = await evaluate(`(() => {
       const element = document.querySelector('#film .card .name')
       if (!element) return false
@@ -171,6 +212,7 @@ async function main () {
       defaultCards: defaultState.cards,
       xingyaCards: xingyaState.cards,
       xingyaFirstCard: xingyaState.firstCard,
+      criticalSourceCards,
       detailOpened: detail.visible
     }, null, 2))
   } finally {
