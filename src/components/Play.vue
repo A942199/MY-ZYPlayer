@@ -1010,10 +1010,9 @@ export default {
         }
       })
     },
-    mediaServiceConfig () {
+    mediaProviderConfig () {
       return {
-        baseUrl: this.mediaEnhancementConfig.baseUrl,
-        password: this.mediaEnhancementConfig.password
+        providers: this.mediaEnhancementConfig.providers
       }
     },
     async persistMediaEnhancementConfig () {
@@ -1089,12 +1088,12 @@ export default {
       }
 
       if (this.mediaEnhancementConfig.danmakuEnabled) {
-        this.danmakuController.setMedia(media, this.mediaServiceConfig(), false)
+        this.danmakuController.setMedia(media, this.mediaProviderConfig(), false)
       } else {
         this.danmakuController.clear()
         this.danmakuController.setEnabled(false)
       }
-      this.subtitleController.beginMedia(media, this.mediaServiceConfig(), false)
+      this.subtitleController.beginMedia(media, this.mediaProviderConfig(), false)
     },
     destroyMediaEnhancements () {
       this.mediaEnhancementMountToken += 1
@@ -1116,7 +1115,7 @@ export default {
       if (!this.danmakuController) return
       this.danmakuController.setEnabled(this.mediaEnhancementConfig.danmakuEnabled)
       if (this.mediaEnhancementConfig.danmakuEnabled && this.currentMediaIdentity) {
-        this.danmakuController.setMedia(this.currentMediaIdentity, this.mediaServiceConfig(), false)
+        this.danmakuController.setMedia(this.currentMediaIdentity, this.mediaProviderConfig(), false)
       }
     },
     async rematchDanmaku () {
@@ -1126,7 +1125,7 @@ export default {
         await this.persistMediaEnhancementConfig()
         this.danmakuController.setEnabled(true)
       }
-      this.danmakuController.setMedia(this.currentMediaIdentity, this.mediaServiceConfig(), true)
+      this.danmakuController.setMedia(this.currentMediaIdentity, this.mediaProviderConfig(), true)
     },
     async adjustDanmaku (key, delta) {
       const current = Number(this.mediaEnhancementConfig.danmaku[key] || 0)
