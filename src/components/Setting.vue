@@ -75,7 +75,7 @@
         </div>
       </div>
       <div class="site">
-        <div class="title">字幕与弹幕</div>
+        <div class="title">字幕与弹幕（本地）</div>
         <div class="site-box media-enhancement-settings">
           <div class="zy-input">
             <input type="checkbox" v-model="d.mediaEnhancement.danmakuEnabled" @change="saveMediaEnhancementQuick"> 默认开启弹幕
@@ -162,8 +162,8 @@
         </span>
       </el-dialog>
     </div>
-    <div> <!-- MyVideo 字幕/弹幕服务 -->
-      <el-dialog :visible.sync="show.mediaEnhancementDialog" v-if="show.mediaEnhancementDialog" title="MyVideo 字幕/弹幕服务" :append-to-body="true" @close="closeDialog" width="520px">
+    <div> <!-- 本地字幕/弹幕源 -->
+      <el-dialog :visible.sync="show.mediaEnhancementDialog" v-if="show.mediaEnhancementDialog" title="本地字幕/弹幕源" :append-to-body="true" @close="closeDialog" width="520px">
         <el-form label-width="90px" label-position="left" size="small">
           <el-form-item label="弹弹 App ID">
             <el-input v-model="mediaEnhancementDraft.providers.danmaku.dandanplayAppId" placeholder="DANDANPLAY_APP_ID" />
