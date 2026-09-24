@@ -425,7 +425,7 @@ export default {
         const str = clipboard.readText()
         const json = JSON.parse(str)
         const rows = Array.isArray(json) ? json : [json]
-        shortcut.clear().then(() => shortcut.bulkAdd ? shortcut.bulkAdd(rows) : Promise.all(rows.map(item => shortcut.add(item)))).then(() => {
+        shortcut.clear().then(() => shortcut.add(rows)).then(() => {
           this.$message.success('快捷键已导入')
           this.getShortcut()
           this.d.shortcutModified = true
