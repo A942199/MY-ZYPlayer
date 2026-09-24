@@ -213,7 +213,8 @@ export default {
       checkAllSitesLoading: false,
       checkProgress: 0,
       stopFlag: false,
-      editOldkey: ''
+      editOldkey: '',
+      sortable: null
     }
   },
   computed: {
@@ -270,6 +271,12 @@ export default {
   },
   methods: {
     ...mapMutations(['SET_SETTING']),
+    onShiftKeyDown (event) {
+      if (event.key === 'Shift') this.shiftDown = true
+    },
+    onShiftKeyUp (event) {
+      if (event.key === 'Shift') this.shiftDown = false
+    },
     selectionCellClick (selection, row) {
       if (this.shiftDown && this.selectionBegin !== '' && selection.includes(row)) {
         this.selectionEnd = row.id
@@ -417,17 +424,16 @@ export default {
         return true
       }
     },
-    addOrEditSite () {
+    async addOrEditSite () {
       if (!this.siteInfo.name || !this.siteInfo.api) {
         this.$message.error('名称和API接口不能为空。')
         return false
       }
-      if (!this.checkSiteKey()) {
-        return false
-      }
+      if (!this.checkSiteKey()) return false
+
       const randomstring = require('randomstring')
       const doc = {
-        key: this.dialogType === 'edit' ? this.siteInfo.key : this.siteInfo.key ? this.siteInfo.key : randomstring.generate(6),
+        key: this.dialogType === 'edit' ? this.siteInfo.key : (this.siteInfo.key || randomstring.generate(6)),
         name: this.siteInfo.name,
         api: this.siteInfo.api,
         type: this.siteInfo.type,
@@ -449,8 +455,9 @@ export default {
         doc.network = 'native'
         doc.group = doc.group || 'CMS'
       }
-      if (this.dialogType === 'edit') sites.remove(this.siteInfo.id)
-      sites.add(doc).then(res => {
+
+      try {
+        await sites.put(doc)
         this.siteInfo = {
           key: '',
           name: '',
@@ -461,15 +468,18 @@ export default {
           network: 'native',
           download: '',
           jiexiUrl: '',
-          group: 'CMS'
+          group: 'CMS',
+          isActive: true
         }
         this.dialogType === 'edit' ? this.$message.success('修改成功！') : this.$message.success('新增源成功！')
         this.editSiteDialogVisible = false
-        this.getSites()
-      })
-      this.editOldkey = ''
+        this.editOldkey = ''
+        await this.getSites()
+      } catch (error) {
+        this.$message.error('保存源失败：' + error.message)
+      }
     },
-    async resetSitesEvent () {
+    async resetSitesEvent () {    async resetSitesEvent () {
       let url = this.setting.sitesDataURL
       if (!url) {
         url = 'https://raw.githubusercontent.com/A942199/yuan/refs/heads/main/TV.json'
@@ -500,10 +510,9 @@ export default {
         this.sites = this.$refs.editSitesTable.tableData
       }
     },
-    propChangeEvent (row) {
-      sites.remove(row.id)
-      sites.add(row)
-      this.getSites()
+    async propChangeEvent (row) {
+      await sites.put({ ...row })
+      await this.getSites()
     },
     resetId (inArray) {
       let id = 1
@@ -512,23 +521,17 @@ export default {
         id += 1
       })
     },
-    updateDatabase () {
-      // 因为el-table的数据是单向绑定,我们先同步el-table里的数据和其绑定的数据
+    async updateDatabase () {
       this.syncTableData()
-      sites.clear().then(res => {
-        let id = 1
-        this.sites.forEach(ele => {
-          ele.id = id
-          id += 1
-        })
-        sites.bulkAdd(this.sites).then(this.getSites())
-      })
+      this.sites = this.sites.map((site, index) => ({ ...site, id: index + 1 }))
+      await sites.replaceAll(this.sites)
+      await this.getSites()
     },
-    removeSelectedSites () {
-      this.multipleSelection.forEach(e => sites.remove(e.id))
+    async removeSelectedSites () {
+      const selected = new Set(this.multipleSelection.map(item => item.id))
+      this.sites = this.sites.filter(item => !selected.has(item.id))
       this.$refs.editSitesTable.clearFilter()
-      this.getSites()
-      this.updateDatabase()
+      await this.updateDatabase()
       this.enableBatchEdit = false
     },
     rowDrop () {
@@ -538,7 +541,8 @@ export default {
       }
       const tbody = document.getElementById('sites-table').querySelector('.el-table__body-wrapper tbody')
       const _this = this
-      Sortable.create(tbody, {
+      if (this.sortable) this.sortable.destroy()
+      this.sortable = Sortable.create(tbody, {
         onEnd ({ newIndex, oldIndex }) {
           const currRow = _this.sites.splice(oldIndex, 1)[0]
           _this.sites.splice(newIndex, 0, currRow)
@@ -574,15 +578,22 @@ export default {
         row.status = '失效'
         row.isActive = false
       }
-      sites.remove(row.id)
-      sites.add(row)
+      await sites.put({ ...row })
       return row.status
     }
   },
   mounted () {
     this.rowDrop()
-    addEventListener('keydown', code => { if (code.keyCode === 16) this.shiftDown = true })
-    addEventListener('keyup', code => { if (code.keyCode === 16) this.shiftDown = false })
+    window.addEventListener('keydown', this.onShiftKeyDown)
+    window.addEventListener('keyup', this.onShiftKeyUp)
+  },
+  beforeDestroy () {
+    window.removeEventListener('keydown', this.onShiftKeyDown)
+    window.removeEventListener('keyup', this.onShiftKeyUp)
+    if (this.sortable) {
+      this.sortable.destroy()
+      this.sortable = null
+    }
   },
   created () {
     this.getSites()
