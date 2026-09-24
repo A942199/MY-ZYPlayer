@@ -264,7 +264,8 @@ async function subjectFingerprint (id, title, options = {}) {
 }
 
 function uniqueStrings (values) {
-  return (values || [])
+  const list = Array.isArray(values) ? values : (values === undefined || values === null ? [] : [values])
+  return list
     .map(value => String(value || '').trim())
     .filter(Boolean)
     .filter((value, index, array) => array.indexOf(value) === index)
