@@ -548,17 +548,21 @@ export default {
           }
         })) this.exportablePlaylist = true
 
-        if (!mediaPath.endsWith('.m3u8') && !mediaPath.endsWith('.mp4')) {
+        const normalizedMediaPath = mediaPath.toLowerCase()
+        if (!normalizedMediaPath.endsWith('.m3u8') && !normalizedMediaPath.endsWith('.mp4')) {
           const currentSite = await sites.find({ key: this.video.key })
           if (!currentSite) throw new Error('当前播放源已不存在')
           this.$message.info('即将调用解析接口播放，请等待...')
-          this.onlineUrl = (currentSite.jiexiUrl || this.setting.defaultParseURL || '') + url
-          if (!this.onlineUrl) throw new Error('未配置解析接口')
+          const configuredParser = String(currentSite.jiexiUrl || '').trim()
+          const useDefaultParser = !configuredParser || ['default', '默认'].includes(configuredParser.toLowerCase())
+          const parserBase = useDefaultParser ? String(this.setting.defaultParseURL || '').trim() : configuredParser
+          if (!parserBase) throw new Error('未配置解析接口')
+          this.onlineUrl = parserBase + url
           this.videoPlaying('online')
           return
         }
 
-        const extMatch = mediaPath.match(/\.\w+?$/)
+        const extMatch = normalizedMediaPath.match(/\.\w+?$/)
         if (!extMatch) throw new Error('无法识别媒体格式')
         this.getPlayer(extMatch[0].slice(1))
         this.xg.src = url
@@ -940,6 +944,7 @@ export default {
     async getOtherSites () {
       this.right.other = []
       const currentSite = await sites.find({ key: this.video.key })
+      if (!currentSite) return
       sites.all().then(sitesRes => {
         // 排除已关闭的源和当前源
         for (const siteItem of sitesRes.filter(x => x.isActive && x.group === currentSite.group && x.key !== this.video.key)) {
