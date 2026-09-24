@@ -68,17 +68,26 @@ function parseNumbers (value) {
 function uniqueStrings (values) {
   const out = []
   const seen = new Set()
-  ;(values || []).flat(Infinity).forEach(value => {
-    if (value == null) return
+  const add = value => {
+    if (value == null || out.length >= 16) return
+    if (Array.isArray(value)) {
+      value.forEach(add)
+      return
+    }
+    if (typeof value === 'object') {
+      add(value.name || value.title || value.value || '')
+      return
+    }
     String(value).split(/[|#$，、;；\r\n]+/).forEach(part => {
       const raw = part.trim()
       const key = raw.normalize('NFKC').toLowerCase().replace(/\s+/g, '')
-      if (!raw || !key || seen.has(key)) return
+      if (!raw || !key || seen.has(key) || out.length >= 16) return
       seen.add(key)
       out.push(raw)
     })
-  })
-  return out.slice(0, 16)
+  }
+  add(values)
+  return out
 }
 
 function firstYear (value) {
@@ -176,7 +185,13 @@ function normalizeDanmakuComments (data) {
     const mode = modeNum === 5 || String(modeRaw).toLowerCase() === 'top'
       ? 'top'
       : (modeNum === 4 || String(modeRaw).toLowerCase() === 'bottom' ? 'bottom' : 'scroll')
-    const color = /^#[0-9a-f]{6}$/i.test(String(item.color || '')) ? String(item.color) : '#ffffff'
+    let color = String(item.color || '')
+    if (!/^#[0-9a-f]{6}$/i.test(color)) {
+      const decimal = Number(item.color)
+      color = Number.isFinite(decimal) && decimal >= 0 && decimal <= 0xffffff
+        ? '#' + Math.floor(decimal).toString(16).padStart(6, '0')
+        : '#ffffff'
+    }
     out.push({ time: Math.round(time * 1000) / 1000, mode, color, text })
     if (out.length >= 8000) break
   }
