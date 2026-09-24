@@ -6,7 +6,7 @@
     "serve": "vue-cli-service serve",
     "build": "vue-cli-service build",
     "lint": "vue-cli-service lint",
-    "test": "node tests/myvideo.test.js",
+    "test": "node tests/myvideo.test.js && node tests/playback.test.js",
     "test:integration": "node tests/yuan-integration.js",
     "test:matrix": "node tests/yuan-matrix.js",
     "test:e2e": "node tests/electron-e2e.js",
