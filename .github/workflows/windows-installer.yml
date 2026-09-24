@@ -1,0 +1,43 @@
+name: windows-installer
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - 'src/**'
+      - 'public/**'
+      - 'build/**'
+      - 'scripts/**'
+      - 'package.json'
+      - 'vue.config.js'
+      - '.github/workflows/windows-installer.yml'
+  workflow_dispatch:
+
+jobs:
+  package:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '16'
+          cache: npm
+      - run: npm install --package-lock=false --legacy-peer-deps --registry=https://registry.npmjs.org
+        shell: pwsh
+      - run: npm run electron:build -- --win --x64
+        shell: pwsh
+      - name: Show packaged files
+        run: Get-ChildItem -Recurse dist_electron | Select-Object FullName, Length
+        shell: pwsh
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: MY-ZYPlayer-Windows-x64
+          path: |
+            dist_electron/*.exe
+            dist_electron/*.blockmap
+            dist_electron/latest.yml
+          if-no-files-found: error
+          retention-days: 30
