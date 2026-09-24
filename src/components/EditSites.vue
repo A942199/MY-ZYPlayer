@@ -314,15 +314,15 @@ export default {
       })
       this.updateDatabase()
     },
-    getSites () {
-      sites.all().then(res => {
-        res.forEach(element => {
-          if (element.reverseOrder === null || element.reverseOrder === undefined) {
-            element.reverseOrder = false
-          }
-        })
-        this.sites = res
+    async getSites () {
+      const rows = await sites.all()
+      rows.forEach(element => {
+        if (element.reverseOrder === null || element.reverseOrder === undefined) {
+          element.reverseOrder = false
+        }
       })
+      this.sites = rows
+      return rows
     },
     getSitesGroup () {
       const arr = []
@@ -392,7 +392,7 @@ export default {
       this.getSitesGroup()
       this.dialogType = 'edit'
       this.editSiteDialogVisible = true
-      this.siteInfo = siteInfo
+      this.siteInfo = { ...siteInfo }
       this.editOldkey = siteInfo.key
     },
     closeDialog () {
@@ -479,7 +479,7 @@ export default {
         this.$message.error('保存源失败：' + error.message)
       }
     },
-    async resetSitesEvent () {    async resetSitesEvent () {
+    async resetSitesEvent () {
       let url = this.setting.sitesDataURL
       if (!url) {
         url = 'https://raw.githubusercontent.com/A942199/yuan/refs/heads/main/TV.json'
@@ -489,8 +489,7 @@ export default {
         if (!imported.length) return
         const existing = await sites.all()
         const merged = myvideo.mergeImportedSites(existing, imported)
-        await sites.clear()
-        await sites.bulkAdd(merged)
+        await sites.replaceAll(merged)
         this.$message.success('TV.json 导入/更新成功')
         await this.getSites()
       } catch (error) {
