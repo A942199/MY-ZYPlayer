@@ -1,10 +1,16 @@
 'use strict'
 
 const DEFAULT_CONFIG = Object.freeze({
-  baseUrl: 'https://video.zi-quan.com',
-  password: '',
   danmakuEnabled: true,
   subtitlesEnabled: false,
+  providers: {
+    dandanplay: { appId: '', appSecret: '', baseUrl: '' },
+    jimaku: { apiKey: '', baseUrl: '' },
+    assrt: { token: '', baseUrl: '' },
+    opensubtitles: { apiKey: '', userAgent: 'MY-ZYPlayer v2.9', baseUrl: '' },
+    subdl: { apiKey: '', baseUrl: '' },
+    compatibleDanmaku: { urls: '', token: '' }
+  },
   danmaku: {
     opacity: 0.86,
     fontSize: 24,
@@ -22,12 +28,25 @@ function clamp (value, min, max, fallback) {
 function normalizeMediaEnhancementConfig (value = {}) {
   const source = value && typeof value === 'object' ? value : {}
   const danmaku = source.danmaku && typeof source.danmaku === 'object' ? source.danmaku : {}
+  const providers = source.providers && typeof source.providers === 'object' ? source.providers : {}
+  const pick = (name, defaults) => {
+    const value = providers[name] && typeof providers[name] === 'object' ? providers[name] : {}
+    const out = {}
+    Object.keys(defaults).forEach(key => { out[key] = String(value[key] == null ? defaults[key] : value[key]).trim() })
+    return out
+  }
   return {
-    baseUrl: String(source.baseUrl || DEFAULT_CONFIG.baseUrl).trim() || DEFAULT_CONFIG.baseUrl,
-    password: String(source.password || ''),
     danmakuEnabled: source.danmakuEnabled !== false,
     // Product invariant: external subtitles are opt-in per playback and never auto-requested.
     subtitlesEnabled: false,
+    providers: {
+      dandanplay: pick('dandanplay', DEFAULT_CONFIG.providers.dandanplay),
+      jimaku: pick('jimaku', DEFAULT_CONFIG.providers.jimaku),
+      assrt: pick('assrt', DEFAULT_CONFIG.providers.assrt),
+      opensubtitles: pick('opensubtitles', DEFAULT_CONFIG.providers.opensubtitles),
+      subdl: pick('subdl', DEFAULT_CONFIG.providers.subdl),
+      compatibleDanmaku: pick('compatibleDanmaku', DEFAULT_CONFIG.providers.compatibleDanmaku)
+    },
     danmaku: {
       opacity: clamp(danmaku.opacity, 0.2, 1, DEFAULT_CONFIG.danmaku.opacity),
       fontSize: clamp(danmaku.fontSize, 16, 42, DEFAULT_CONFIG.danmaku.fontSize),
