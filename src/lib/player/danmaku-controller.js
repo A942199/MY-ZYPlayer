@@ -196,9 +196,14 @@ class DanmakuController {
   setEnabled (enabled) {
     this.settings.enabled = enabled !== false
     if (!this.settings.enabled) {
+      this.generation += 1
+      this.comments = []
       this.active = []
-      if (this.ctx) this.ctx.clearRect(0, 0, this.canvas.clientWidth || 1, this.canvas.clientHeight || 1)
+      this.cursor = 0
+      if (this.ctx && this.canvas) this.ctx.clearRect(0, 0, this.canvas.clientWidth || 1, this.canvas.clientHeight || 1)
       this.status = '已关闭'
+    } else if (this.status === '已关闭') {
+      this.status = '未匹配'
     }
     this.emit()
   }
