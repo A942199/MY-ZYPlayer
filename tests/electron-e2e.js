@@ -256,6 +256,50 @@ async function main () {
     const elementIconsLoaded = await evaluate("document.fonts ? document.fonts.check('16px element-icons') : true")
     assert.strictEqual(elementIconsLoaded, true, 'Element UI icon font did not load')
 
+    // Full sidebar navigation smoke: every visible navigation item must switch
+    // the Vuex view and render the matching component without breaking the app.
+    const navigationCases = [
+      ['电影', 'Film', 'film'],
+      ['豆瓣', 'Douban', 'douban'],
+      ['播放', 'Play', 'play'],
+      ['收藏', 'Star', 'star'],
+      ['历史记录', 'History', 'history'],
+      ['源管理', 'EditSites', 'editsites'],
+      ['设置', 'Setting', 'setting']
+    ]
+    for (const [title, expectedView, componentName] of navigationCases) {
+      const clickedNav = await evaluate(
+        "(() => {const node=Array.from(document.querySelectorAll('.aside span.zy-svg')).find(el=>{const t=el.querySelector('title');return t&&t.textContent===" +
+        JSON.stringify(title) +
+        "});if(!node)return false;node.click();return true})()"
+      )
+      assert.strictEqual(clickedNav, true, 'Navigation item not found: ' + title)
+      let navState = null
+      for (let retry = 0; retry < 40; retry++) {
+        const raw = await evaluate(
+          "(() => {const root=document.querySelector('#app').__vue__;const app=root&&root.$children&&root.$children[0];if(!app)return null;" +
+          "const seen=new Set();function walk(c){if(!c||seen.has(c))return null;seen.add(c);if(String(c.$options&&c.$options.name).toLowerCase()===" +
+          JSON.stringify(componentName) +
+          ")return c;for(const child of(c.$children||[])){const found=walk(child);if(found)return found}return null}" +
+          "const target=walk(app);return JSON.stringify({view:app.$store.state.view,found:!!target,display:target&&target.$el?getComputedStyle(target.$el).display:null})})()"
+        )
+        if (raw) {
+          navState = JSON.parse(raw)
+          if (navState.view === expectedView && navState.found && navState.display !== 'none') break
+        }
+        await sleep(50)
+      }
+      assert(navState, 'Navigation state unavailable: ' + title)
+      assert.strictEqual(navState.view, expectedView, 'Navigation view mismatch for ' + title)
+      assert.strictEqual(navState.found, true, 'Navigation component missing for ' + title)
+      assert.notStrictEqual(navState.display, 'none', 'Navigation component remained hidden for ' + title)
+    }
+    // Continue the functional E2E from the main Film page.
+    await evaluate(
+      "(() => {const node=Array.from(document.querySelectorAll('.aside span.zy-svg')).find(el=>{const t=el.querySelector('title');return t&&t.textContent==='电影'});if(node)node.click();return true})()"
+    )
+    await sleep(100)
+
     async function selectSiteByDom (name) {
       const inputRect = JSON.parse(await evaluate(
         "(() => {const el=document.querySelector('#film .listpage-header > .el-select .el-input');if(!el)return null;" +
