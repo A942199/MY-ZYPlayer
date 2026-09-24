@@ -489,6 +489,45 @@ async function main () {
     }
     assert.strictEqual(manualCms, null, 'CMS delete was not persisted')
 
+    // Full sidebar navigation smoke runs last so view transitions cannot perturb
+    // the functional source/playback baseline above.
+    // Every visible navigation item must switch Vuex view and expose a visible page root.\n    // the Vuex view and render the matching component without breaking the app.
+    const navigationCases = [
+      ['电影', 'Film', '#film'],
+      ['豆瓣', 'Douban', '.douban-page'],
+      ['播放', 'Play', '.play'],
+      ['收藏', 'Star', '#star'],
+      ['历史记录', 'History', '#history'],
+      ['源管理', 'EditSites', '#sites'],
+      ['设置', 'Setting', '.setting']
+    ]
+    for (const [title, expectedView, selector] of navigationCases) {
+      const clickedNav = await evaluate(
+        "(() => {const node=Array.from(document.querySelectorAll('.aside span.zy-svg')).find(el=>{const t=el.querySelector('title');return t&&t.textContent===" +
+        JSON.stringify(title) +
+        "});if(!node)return false;node.click();return true})()"
+      )
+      assert.strictEqual(clickedNav, true, 'Navigation item not found: ' + title)
+      let navState = null
+      for (let retry = 0; retry < 40; retry++) {
+        const raw = await evaluate(
+          "(() => {const root=document.querySelector('#app').__vue__;const app=root&&root.$children&&root.$children[0];if(!app)return null;" +
+          "const el=document.querySelector(" + JSON.stringify(selector) + ");const rect=el&&el.getBoundingClientRect();" +
+          "return JSON.stringify({view:app.$store.state.view,found:!!el,display:el?getComputedStyle(el).display:null,width:rect?rect.width:0,height:rect?rect.height:0})})()"
+        )
+        if (raw) {
+          navState = JSON.parse(raw)
+          if (navState.view === expectedView && navState.found && navState.display !== 'none' && navState.width > 0 && navState.height > 0) break
+        }
+        await sleep(50)
+      }
+      assert(navState, 'Navigation state unavailable: ' + title)
+      assert.strictEqual(navState.view, expectedView, 'Navigation view mismatch for ' + title)
+      assert.strictEqual(navState.found, true, 'Navigation root missing for ' + title)
+      assert.notStrictEqual(navState.display, 'none', 'Navigation root remained hidden for ' + title)
+      assert(navState.width > 0 && navState.height > 0, 'Navigation root has no visible layout for ' + title)
+    }
+
     const sourceManagerResult = { added: true, toggled: true, edited: true, deleted: true }
 
     console.log(JSON.stringify({
