@@ -290,7 +290,7 @@ async function main () {
       "request.onsuccess=()=>{" +
       "const db=request.result;const tx=db.transaction(['sites','setting'],'readwrite');const store=tx.objectStore('sites');const settings=tx.objectStore('setting');" +
       "store.clear();const rows=" + JSON.stringify(mockSites) + ";for(const row of rows)store.add(row);" +
-      "const getSetting=settings.get(0);getSetting.onsuccess=()=>{const row=getSetting.result||{id:0};row.mediaEnhancement={baseUrl:" + JSON.stringify(JSON.stringify(base)) + ",password:'e2e-secret',danmakuEnabled:true,subtitlesEnabled:false,danmaku:{opacity:0.86,fontSize:24,speed:150,area:0.62,offset:0}};settings.put(row)};" +
+      "const getSetting=settings.get(0);getSetting.onsuccess=()=>{const row=getSetting.result||{id:0};row.mediaEnhancement={baseUrl:" + JSON.stringify(base) + ",password:'e2e-secret',danmakuEnabled:true,subtitlesEnabled:false,danmaku:{opacity:0.86,fontSize:24,speed:150,area:0.62,offset:0}};settings.put(row)};" +
       "tx.oncomplete=()=>{db.close();resolve(true)};tx.onerror=()=>reject(tx.error)}" +
       "})"
     )
