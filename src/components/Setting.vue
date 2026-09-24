@@ -276,7 +276,7 @@ export default {
         configSitesDataUrlDialog: false,
         mediaEnhancementDialog: false
       },
-      d: { },
+      d: { mediaEnhancement: normalizeMediaEnhancementConfig() },
       latestVersion: pkg.version,
       inputPassword: '',
       action: '',
