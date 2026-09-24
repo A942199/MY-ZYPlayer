@@ -79,7 +79,7 @@
         <div class="site-box media-enhancement-settings">
           <div class="zy-input">
             <input type="checkbox" v-model="d.mediaEnhancement.danmakuEnabled" @change="saveMediaEnhancementQuick"> 默认开启弹幕
-            <input type="checkbox" v-model="d.mediaEnhancement.subtitlesEnabled" @change="saveMediaEnhancementQuick"> 默认开启字幕
+            <span>字幕默认关闭（播放时手动开启）</span>
           </div>
           <div class="zy-select">
             <div class="vs-placeholder vs-noAfter" @click="openMediaEnhancementDialog">MyVideo 服务设置</div>
