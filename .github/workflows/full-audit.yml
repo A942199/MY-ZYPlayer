@@ -1,0 +1,60 @@
+name: full-audit
+
+on:
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  deterministic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '16'
+      - run: npm install --ignore-scripts --package-lock=false --legacy-peer-deps --registry=https://registry.npmjs.org
+      - run: npm test
+      - run: npm run test:douban
+      - run: node --check src/background.js
+      - run: node --check src/main/douban/runtime.js
+      - run: node --check src/main/myvideo/runtime.js
+      - run: node --check tests/navigation-audit-e2e.js
+      - run: node node_modules/electron/install.js
+      - run: npm run build
+
+  live-integrations:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '16'
+      - run: npm install --ignore-scripts --package-lock=false --legacy-peer-deps --registry=https://registry.npmjs.org
+      - run: npm run test:douban:integration
+      - run: npm run test:integration
+      - run: npm run test:matrix
+
+  windows-e2e:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '16'
+      - run: npm install --ignore-scripts --package-lock=false --legacy-peer-deps --registry=https://registry.npmjs.org
+        shell: pwsh
+      - run: node node_modules/electron/install.js
+        shell: pwsh
+      - run: npx vue-cli-service electron:build --win --x64 --dir
+        shell: pwsh
+      - run: npm run test:e2e -- --in-place
+        shell: pwsh
+      - run: npm run test:douban:match-e2e
+        shell: pwsh
+      - run: node tests/navigation-audit-e2e.js
+        shell: pwsh
