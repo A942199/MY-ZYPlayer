@@ -1,0 +1,61 @@
+name: full-system-audit
+
+on:
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  core-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '16'
+      - run: npm install --ignore-scripts --package-lock=false --legacy-peer-deps --registry=https://registry.npmjs.org
+      - run: npm run test
+      - run: npm run test:douban
+      - run: find src tests -name '*.js' -print0 | xargs -0 -n1 node --check
+      - run: node node_modules/electron/install.js
+      - run: npm run build
+      - name: Legacy lint audit
+        continue-on-error: true
+        run: npm run lint
+
+  external-integrations:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '16'
+      - run: npm install --ignore-scripts --package-lock=false --legacy-peer-deps --registry=https://registry.npmjs.org
+      - name: Douban live integration
+        continue-on-error: true
+        run: npm run test:douban:integration
+      - name: Yuan live integration
+        continue-on-error: true
+        run: npm run test:integration
+      - name: Yuan provider matrix
+        continue-on-error: true
+        run: npm run test:matrix
+
+  windows-ui-e2e:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '16'
+      - run: npm install --ignore-scripts --package-lock=false --legacy-peer-deps --registry=https://registry.npmjs.org
+        shell: pwsh
+      - run: node node_modules/electron/install.js
+        shell: pwsh
+      - run: npm run electron:build
+        shell: pwsh
+      - run: npm run test:e2e
+        shell: pwsh
+      - run: npm run test:douban:match-e2e
+        shell: pwsh
