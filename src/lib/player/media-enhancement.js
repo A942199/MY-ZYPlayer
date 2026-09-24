@@ -112,6 +112,10 @@ function mediaUrlHint (entry) {
   }
 }
 
+function isGenericFeatureLabel (value) {
+  return /^(?:正片|播放|立即播放|全片|完整版|本篇|本編|movie|feature)$/i.test(String(value || '').trim())
+}
+
 function inferKind (detail, videoInfo, playlist) {
   const raw = [
     videoInfo && videoInfo.type,
@@ -145,7 +149,7 @@ function buildMediaIdentity ({ videoInfo = {}, detail = {}, playlist = [], selec
   const kind = inferKind(detail, videoInfo, playlist)
   const season = parsedEpisode.season != null ? parsedEpisode.season : parsedTitle.season
   let episode = parsedEpisode.episode
-  if (episode == null && kind === 'tv') episode = index + 1
+  if (episode == null && kind === 'tv' && !isGenericFeatureLabel(episodeTitle)) episode = index + 1
   const year = intOrNull(videoInfo.year, 1880, 2200) ||
     intOrNull(detail.year, 1880, 2200) ||
     firstYear(detail.vod_year) ||
@@ -209,5 +213,6 @@ module.exports = {
   buildMediaIdentity,
   normalizeDanmakuComments,
   allowedSubtitleCandidates,
-  playlistLabel
+  playlistLabel,
+  isGenericFeatureLabel
 }
