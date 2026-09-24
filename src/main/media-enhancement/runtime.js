@@ -177,12 +177,11 @@ async function fetchSubtitle (payload = {}) {
   const raw = String(payload.fetchUrl || '').trim()
   if (!raw) throw new Error('字幕下载地址为空')
   const base = new URL(config.baseUrl)
+  const expected = endpointUrl(config, '/api/subtitles/fetch')
   const target = raw.startsWith('http://') || raw.startsWith('https://')
     ? new URL(raw)
     : endpointUrl(config, raw)
-  const basePath = base.pathname.replace(/\/$/, '')
-  const expectedPath = basePath + '/api/subtitles/fetch'
-  if (target.origin !== base.origin || target.pathname !== expectedPath) {
+  if (target.origin !== expected.origin || target.pathname !== expected.pathname) {
     throw new Error('字幕下载地址不可信')
   }
   const response = await requestBuffer(target.href, {
