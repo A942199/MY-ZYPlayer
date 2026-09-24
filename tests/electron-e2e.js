@@ -288,21 +288,25 @@ async function main () {
       "const request=indexedDB.open('zy');" +
       "request.onerror=()=>reject(request.error);" +
       "request.onsuccess=()=>{" +
-      "const db=request.result;const tx=db.transaction(['sites','setting'],'readwrite');const store=tx.objectStore('sites');const settings=tx.objectStore('setting');" +
+      "const db=request.result;const tx=db.transaction('sites','readwrite');const store=tx.objectStore('sites');" +
       "store.clear();const rows=" + JSON.stringify(mockSites) + ";for(const row of rows)store.add(row);" +
-      "const getSetting=settings.get(0);getSetting.onsuccess=()=>{const row=getSetting.result||{id:0};row.mediaEnhancement={baseUrl:" + JSON.stringify(base) + ",password:'e2e-secret',danmakuEnabled:true,subtitlesEnabled:false,danmaku:{opacity:0.86,fontSize:24,speed:150,area:0.62,offset:0}};settings.put(row)};" +
       "tx.oncomplete=()=>{db.close();resolve(true)};tx.onerror=()=>reject(tx.error)}" +
       "})"
     )
     assert.strictEqual(stored, true)
     await evaluate('location.reload(); true')
     await sleep(1000)
+
+    const companionConfigured = await evaluate(
+      "(async()=>{const root=document.querySelector('#app').__vue__;const seen=new Set();function walk(c){if(!c||seen.has(c))return null;seen.add(c);if(String(c.$options&&c.$options.name).toLowerCase()==='setting')return c;for(const child of(c.$children||[])){const found=walk(child);if(found)return found}return null}const s=walk(root);if(!s)return false;s.mediaEnhancementDraft={...(s.d.mediaEnhancement||{}),baseUrl:" + JSON.stringify(base) + ",password:'e2e-secret'};await s.saveMediaEnhancementService();return true})()"
+    )
+    assert.strictEqual(companionConfigured, true, 'Could not configure companion service through Settings')
     const persistedEnhancement = JSON.parse(await evaluate(
       "new Promise((resolve,reject)=>{const request=indexedDB.open('zy');request.onerror=()=>reject(request.error);request.onsuccess=()=>{const db=request.result;const tx=db.transaction('setting','readonly');const get=tx.objectStore('setting').get(0);get.onsuccess=()=>{const row=get.result||{};db.close();resolve(JSON.stringify(row.mediaEnhancement||null))};get.onerror=()=>reject(get.error)}})"
     ))
     assert(persistedEnhancement, 'Media enhancement settings were not persisted')
-    assert.strictEqual(persistedEnhancement.baseUrl, base, 'Companion base URL was overwritten during startup')
-    assert.strictEqual(persistedEnhancement.password, 'e2e-secret', 'Companion password was overwritten during startup')
+    assert.strictEqual(persistedEnhancement.baseUrl, base, 'Companion base URL was not persisted from Settings')
+    assert.strictEqual(persistedEnhancement.password, 'e2e-secret', 'Companion password was not persisted from Settings')
 
     const stateExpression =
       "(() => {" +
