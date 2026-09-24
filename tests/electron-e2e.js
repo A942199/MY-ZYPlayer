@@ -297,6 +297,12 @@ async function main () {
     assert.strictEqual(stored, true)
     await evaluate('location.reload(); true')
     await sleep(1000)
+    const persistedEnhancement = JSON.parse(await evaluate(
+      "new Promise((resolve,reject)=>{const request=indexedDB.open('zy');request.onerror=()=>reject(request.error);request.onsuccess=()=>{const db=request.result;const tx=db.transaction('setting','readonly');const get=tx.objectStore('setting').get(0);get.onsuccess=()=>{const row=get.result||{};db.close();resolve(JSON.stringify(row.mediaEnhancement||null))};get.onerror=()=>reject(get.error)}})"
+    ))
+    assert(persistedEnhancement, 'Media enhancement settings were not persisted')
+    assert.strictEqual(persistedEnhancement.baseUrl, base, 'Companion base URL was overwritten during startup')
+    assert.strictEqual(persistedEnhancement.password, 'e2e-secret', 'Companion password was overwritten during startup')
 
     const stateExpression =
       "(() => {" +
