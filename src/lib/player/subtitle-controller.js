@@ -260,12 +260,12 @@ class SubtitleController {
     }
   }
 
-  enable () {
+  enable (resolveNow = true) {
     if (this.enabled) return
     this.enabled = true
     this.status = '字幕待匹配'
     this.emit()
-    this.resolve(false)
+    if (resolveNow !== false) this.resolve(false)
   }
 
   disable () {
