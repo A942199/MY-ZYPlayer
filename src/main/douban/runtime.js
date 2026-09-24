@@ -101,6 +101,20 @@ async function requestText (url, options = {}) {
   return { ...response, text: response.body.toString('utf8') }
 }
 
+async function requestTextWithRetry (url, options = {}, attempts = 2) {
+  let lastError
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    try {
+      return await requestText(url, options)
+    } catch (error) {
+      lastError = error
+      if (attempt + 1 >= attempts) break
+      await new Promise(resolve => setTimeout(resolve, 350 * (attempt + 1)))
+    }
+  }
+  throw lastError
+}
+
 function normalizeSubject (item, kind) {
   return {
     id: String(item.id || ''),
@@ -127,9 +141,9 @@ async function listSubjects (payload = {}) {
     page_limit: String(limit),
     page_start: String(start)
   })
-  const response = await requestText(DOUBAN_MOVIE_ORIGIN + '/j/search_subjects?' + query.toString(), {
+  const response = await requestTextWithRetry(DOUBAN_MOVIE_ORIGIN + '/j/search_subjects?' + query.toString(), {
     headers: { Accept: 'application/json,text/plain,*/*', Referer: 'https://movie.douban.com/' }
-  })
+  }, 3)
   if (response.status !== 200) throw new Error('Douban HTTP ' + response.status)
   const data = JSON.parse(response.text)
   return {
@@ -144,9 +158,9 @@ async function listSubjects (payload = {}) {
 async function searchSubjects (payload = {}) {
   const text = String(payload.text || '').trim()
   if (!text) return { list: [] }
-  const response = await requestText(DOUBAN_SEARCH_ORIGIN + '/search?cat=1002&q=' + encodeURIComponent(text), {
+  const response = await requestTextWithRetry(DOUBAN_SEARCH_ORIGIN + '/search?cat=1002&q=' + encodeURIComponent(text), {
     headers: { Referer: 'https://www.douban.com/' }
-  })
+  }, 3)
   if (response.status !== 200) throw new Error('Douban search HTTP ' + response.status)
   const $ = cheerio.load(response.text)
   const list = []
@@ -169,10 +183,20 @@ async function searchSubjects (payload = {}) {
       cover: String($(element).find('img').attr('src') || ''),
       rate: String($(element).find('.rating_nums').text() || '').trim(),
       year: yearMatch ? Number(yearMatch[0]) : null,
-      kind: 'unknown'
+      kind: 'unknown',
+      searchMeta: cast
     })
   })
-  return { list }
+  const japaneseQuery = /[\u3040-\u30ff]/.test(text)
+  const filtered = payload.japanOnly
+    ? list.filter(item => japaneseQuery || isLikelyJapaneseSearchText(item.searchMeta))
+    : list
+  return {
+    list: filtered.map(item => {
+      const { searchMeta, ...subject } = item
+      return subject
+    })
+  }
 }
 
 function infoValue (text, label) {
@@ -183,6 +207,16 @@ function infoValue (text, label) {
 function firstYear (value) {
   const match = String(value || '').match(/(?:19|20)\d{2}/)
   return match ? Number(match[0]) : null
+}
+
+function splitInfoValue (value) {
+  return String(value || '').split('/').map(item => item.trim()).filter(Boolean)
+}
+
+function isLikelyJapaneseSearchText (value) {
+  const text = String(value || '')
+  const original = (text.match(/原名\s*:\s*([^/]+)/i) || [])[1] || ''
+  return /[\u3040-\u30ff]/.test(original) || /(?:日本|日语|日本語)/.test(text)
 }
 
 function subjectIdFromHref (href) {
@@ -258,6 +292,8 @@ async function subjectDetail (payload = {}) {
       fingerprint && fingerprint.cast ? [fingerprint.cast] : []
     ).filter((value, index, array) => array.indexOf(value) === index),
     genres: $('span[property="v:genre"]').map((i, el) => $(el).text().trim()).get().filter(Boolean),
+    regions: splitInfoValue(infoValue(info, '制片国家/地区')),
+    languages: splitInfoValue(infoValue(info, '语言')),
     episodeCount,
     fingerprint: (fingerprint && fingerprint.text) || '',
     url: 'https://movie.douban.com/subject/' + id + '/'
