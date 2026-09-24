@@ -75,8 +75,21 @@
   },
   "pauseWhenMinimize": false,
   "mediaEnhancement": {
-    "baseUrl": "https://video.zi-quan.com",
-    "password": "",
+    "providers": {
+      "danmaku": {
+        "dandanplayAppId": "",
+        "dandanplayAppSecret": "",
+        "compatibleUrls": [],
+        "compatibleToken": ""
+      },
+      "subtitles": {
+        "jimakuApiKey": "",
+        "assrtApiToken": "",
+        "openSubtitlesApiKey": "",
+        "openSubtitlesUserAgent": "MY-ZYPlayer v2.9",
+        "subdlApiKey": ""
+      }
+    },
     "danmakuEnabled": true,
     "subtitlesEnabled": false,
     "danmaku": {
