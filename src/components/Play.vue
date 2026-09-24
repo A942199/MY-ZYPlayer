@@ -1094,7 +1094,7 @@ export default {
         this.danmakuController.clear()
         this.danmakuController.setEnabled(false)
       }
-      this.subtitleController.beginMedia(media, this.mediaServiceConfig(), this.mediaEnhancementConfig.subtitlesEnabled)
+      this.subtitleController.beginMedia(media, this.mediaServiceConfig(), false)
     },
     destroyMediaEnhancements () {
       this.mediaEnhancementMountToken += 1
@@ -1155,21 +1155,15 @@ export default {
       this.right.show = true
       this.right.type = 'subtitles'
     },
-    async toggleSubtitles () {
+    toggleSubtitles () {
       if (!this.subtitleController) return
       const enabled = !this.subtitleState.enabled
-      this.mediaEnhancementConfig.subtitlesEnabled = enabled
-      await this.persistMediaEnhancementConfig()
       if (enabled) this.subtitleController.enable()
       else this.subtitleController.disable()
     },
     async rematchSubtitles () {
       if (!this.subtitleController) return
-      if (!this.subtitleState.enabled) {
-        this.mediaEnhancementConfig.subtitlesEnabled = true
-        await this.persistMediaEnhancementConfig()
-        this.subtitleController.enabled = true
-      }
+      if (!this.subtitleState.enabled) this.subtitleController.enable()
       await this.subtitleController.resolve(true)
     },
     selectSubtitle (index) {
