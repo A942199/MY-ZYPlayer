@@ -22,4 +22,5 @@ jobs:
       - run: npm install --ignore-scripts --package-lock=false --legacy-peer-deps --registry=https://registry.npmjs.org
       - run: npm run test:douban
       - run: node --check src/main/douban/runtime.js && node --check tests/douban.test.js
+      - run: node node_modules/electron/install.js
       - run: npm run build
