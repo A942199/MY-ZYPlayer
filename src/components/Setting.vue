@@ -323,11 +323,11 @@ export default {
     getSetting () {
       setting.find().then(async res => {
         res = res || { id: 0 }
-        const normalized = normalizeMediaEnhancementConfig(res.mediaEnhancement)
-        res.mediaEnhancement = normalized
+        // Normalize for the current UI/store only. Startup must stay read-only so it
+        // cannot overwrite a concurrent settings update with a stale snapshot.
+        res.mediaEnhancement = normalizeMediaEnhancementConfig(res.mediaEnhancement)
         this.d = res
         this.setting = this.d
-        await setting.update({ mediaEnhancement: normalized })
         if (!this.setting.defaultParseURL) this.configDefaultParseURL()
         if (!this.setting.sitesDataURL) this.resetDefaultSitesDataURL()
       })
