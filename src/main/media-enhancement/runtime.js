@@ -394,7 +394,7 @@ async function searchJimaku (config, media) {
       const files = Array.isArray(filesData) ? filesData : Array.isArray(filesData && filesData.files) ? filesData.files : []
       for (const file of files) {
         const fileName = cleanText(file.name || file.filename, 300)
-        addCandidate(out, { provider: 'jimaku', providerRef: String(row.entry.id) + ':' + fileName, language: classifySubtitleLanguage(file.language, fileName) || 'ja', fileName, downloadUrl: cleanText(file.url, 2048), headers, score: row.score }, media)
+        addCandidate(out, { provider: 'jimaku', providerRef: String(row.entry.id) + ':' + fileName, language: classifySubtitleLanguage(file.language, fileName), fileName, downloadUrl: cleanText(file.url, 2048), headers, score: row.score }, media)
       }
     }
     if (out.length) break
