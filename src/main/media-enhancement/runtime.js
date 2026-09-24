@@ -229,23 +229,33 @@ function firstValue (obj, keys) {
 function danmakuEpisodeCandidates (data, media) {
   const out = []
   const seen = new Set()
-  for (const obj of walkObjects(data)) {
+
+  const push = (obj, inherited = {}) => {
     const episodeId = firstValue(obj, ['episodeId', 'episode_id', 'commentId', 'comment_id'])
-    if (!episodeId || seen.has(episodeId)) continue
-    const title = firstValue(obj, ['animeTitle', 'anime_title', 'bangumiTitle', 'seriesTitle', 'title', 'name'])
+    if (!episodeId || seen.has(episodeId)) return
+    const title = firstValue(obj, ['animeTitle', 'anime_title', 'bangumiTitle', 'seriesTitle']) || inherited.title || firstValue(obj, ['title', 'name'])
     const episodeTitle = firstValue(obj, ['episodeTitle', 'episode_title', 'subtitle', 'episodeName', 'name'])
     const episode = safeInt(obj.episode ?? obj.episodeNumber ?? obj.episodeNo, 0, 10000) ?? parseNumbers(episodeTitle).episode
-    const yearText = firstValue(obj, ['year', 'animeYear', 'releaseYear']) || title
-    const yearMatch = yearText.match(/(?:18|19|20|21)\d{2}/)
+    const yearText = firstValue(obj, ['year', 'animeYear', 'releaseYear']) || inherited.year || title
+    const yearMatch = String(yearText || '').match(/(?:18|19|20|21)\d{2}/)
     const year = yearMatch ? Number(yearMatch[0]) : null
     const score = titleScore(media, title)
-    if (score < 84) continue
-    if (media.year && year && Number(media.year) !== year) continue
-    if (media.episode != null && episode != null && Number(media.episode) !== episode) continue
-    if (media.episode != null && episode == null) continue
+    if (score < 84) return
+    if (media.year && year && Number(media.year) !== year) return
+    if (media.episode != null && episode != null && Number(media.episode) !== episode) return
+    if (media.episode != null && episode == null) return
     seen.add(episodeId)
     out.push({ episodeId, title, episodeTitle, score: score + (episode === Number(media.episode) ? 30 : 0) + (year === Number(media.year) ? 10 : 0) })
   }
+
+  for (const parent of walkObjects(data)) {
+    const episodes = Array.isArray(parent && parent.episodes) ? parent.episodes : (Array.isArray(parent && parent.episodeList) ? parent.episodeList : null)
+    if (!episodes || !episodes.length) continue
+    const title = firstValue(parent, ['animeTitle', 'anime_title', 'bangumiTitle', 'seriesTitle', 'title', 'name'])
+    const year = firstValue(parent, ['year', 'animeYear', 'releaseYear'])
+    episodes.slice(0, 500).forEach(episode => push(episode, { title, year }))
+  }
+  for (const obj of walkObjects(data)) push(obj)
   return out.sort((a, b) => b.score - a.score)
 }
 
