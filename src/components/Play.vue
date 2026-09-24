@@ -1027,7 +1027,21 @@ export default {
     },
     scheduleMediaEnhancementMount (selectedEntry) {
       const token = ++this.mediaEnhancementMountToken
-      const mount = (attempt = 0) => {
+      let settingsReady = false
+      const mount = async (attempt = 0) => {
+        if (token !== this.mediaEnhancementMountToken || this.onlineUrl || this.isLive) return
+        if (!settingsReady) {
+          settingsReady = true
+          try {
+            const persisted = await setting.find()
+            if (token !== this.mediaEnhancementMountToken) return
+            if (persisted && persisted.mediaEnhancement) {
+              this.mediaEnhancementConfig = normalizeMediaEnhancementConfig(persisted.mediaEnhancement)
+            }
+          } catch (error) {
+            console.warn('读取字幕/弹幕设置失败，使用当前配置:', error)
+          }
+        }
         if (token !== this.mediaEnhancementMountToken || this.onlineUrl || this.isLive) return
         const root = document.getElementById('xgplayer')
         const video = root && root.querySelector('video')
