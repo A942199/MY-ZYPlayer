@@ -278,10 +278,9 @@ async function main () {
       for (let retry = 0; retry < 40; retry++) {
         const raw = await evaluate(
           "(() => {const root=document.querySelector('#app').__vue__;const app=root&&root.$children&&root.$children[0];if(!app)return null;" +
-          "const seen=new Set();function walk(c){if(!c||seen.has(c))return null;seen.add(c);if(String(c.$options&&c.$options.name).toLowerCase()===" +
+          "const candidates=[root,app].concat(app.$children||[]);const target=candidates.find(c=>String(c&&c.$options&&c.$options.name).toLowerCase()===" +
           JSON.stringify(componentName) +
-          ")return c;for(const child of(c.$children||[])){const found=walk(child);if(found)return found}return null}" +
-          "const target=walk(app);return JSON.stringify({view:app.$store.state.view,found:!!target,display:target&&target.$el?getComputedStyle(target.$el).display:null})})()"
+          ");return JSON.stringify({view:app.$store.state.view,found:!!target,display:target&&target.$el?getComputedStyle(target.$el).display:null})})()"
         )
         if (raw) {
           navState = JSON.parse(raw)
