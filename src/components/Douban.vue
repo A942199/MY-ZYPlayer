@@ -96,6 +96,7 @@
             <div class="people" v-if="selected.directors && selected.directors.length">导演：{{selected.directors.join(' / ')}}</div>
             <div class="people" v-if="selected.casts && selected.casts.length">主演：{{selected.casts.slice(0, 8).join(' / ')}}</div>
             <p>{{selected.summary}}</p>
+            <div class="detail-warning" v-if="detailWarning">{{detailWarning}}</div>
           </div>
         </div>
       </div>
@@ -103,7 +104,8 @@
       <div class="scan-panel">
         <div class="scan-title">
           <span>播放源匹配 · {{scanPhaseLabel}}</span>
-          <span class="progress" v-if="scanState.status === 'scanning'">
+          <span class="progress" v-if="scanState.status === 'preparing'">正在准备匹配…</span>
+          <span class="progress" v-else-if="scanState.status === 'scanning'">
             正在扫描 {{scanState.completed}} / {{scanState.total}}
           </span>
           <span class="progress" v-else>扫描完成 {{scanState.completed || scanState.total}} / {{scanState.total}}</span>
@@ -170,6 +172,7 @@ export default {
       hasMore: true,
       loadGeneration: 0,
       error: '',
+      detailWarning: '',
       searchText: '',
       searchMode: false,
       selected: null,
@@ -380,14 +383,35 @@ export default {
       const generation = ++this.selectionGeneration
       if (this.unsubscribe) this.unsubscribe()
       this.unsubscribe = null
+      this.scanHandle = null
       this.selected = { ...item }
-      this.scanState = { status: 'scanning', phase: 'cms', total: 0, completed: 0, cmsTotal: 0, cmsCompleted: 0, bdTotal: 0, bdCompleted: 0, firstPlayable: null, results: [], top5: [] }
+      this.scanState = { status: 'preparing', phase: 'cms', total: 0, completed: 0, cmsTotal: 0, cmsCompleted: 0, bdTotal: 0, bdCompleted: 0, firstPlayable: null, results: [], top5: [] }
       this.error = ''
+      this.detailWarning = ''
+
+      let identity = { ...item }
       try {
-        const identity = await ipcRenderer.invoke('douban:detail', item)
+        const enriched = await ipcRenderer.invoke('douban:detail', item)
         if (generation !== this.selectionGeneration) return
-        this.selected = { ...item, ...identity }
-        const handle = scan(this.selected, state => {
+        identity = { ...item, ...enriched }
+        if (enriched && enriched.detailStatus && enriched.detailStatus !== 'full') {
+          this.detailWarning = enriched.detailStatus === 'partial'
+            ? '豆瓣详情暂不完整，已使用搜索指纹和现有信息继续匹配播放源。'
+            : '豆瓣详情暂时不可用，已使用现有信息继续匹配播放源。'
+        }
+      } catch (error) {
+        if (generation !== this.selectionGeneration) return
+        identity = { ...item, detailStatus: 'degraded', detailError: error.message }
+        this.detailWarning = '豆瓣详情暂时不可用，已使用现有信息继续匹配播放源。'
+      }
+
+      if (generation !== this.selectionGeneration) return
+      this.selected = identity
+      this.startSubjectScan(identity, generation)
+    },
+    startSubjectScan (identity, generation) {
+      try {
+        const handle = scan(identity, state => {
           if (generation !== this.selectionGeneration) return
           this.scanState = { ...state }
         })
@@ -400,7 +424,7 @@ export default {
           if (generation === this.selectionGeneration) this.error = '源匹配失败：' + error.message
         })
       } catch (error) {
-        if (generation === this.selectionGeneration) this.error = '豆瓣详情加载失败：' + error.message
+        if (generation === this.selectionGeneration) this.error = '源匹配启动失败：' + error.message
       }
     },
     closeSubject () {
@@ -409,6 +433,7 @@ export default {
       this.unsubscribe = null
       this.selected = null
       this.scanHandle = null
+      this.detailWarning = ''
     },
     openProvider (row) {
       if (!row || !row.site || !row.detail) return
@@ -861,6 +886,17 @@ button:hover {
   font-size: 13px;
   line-height: 1.75;
   opacity: .82;
+}
+.detail-warning {
+  max-width: 800px;
+  margin-top: 10px;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 211, 107, .28);
+  border-radius: 8px;
+  background: rgba(255, 211, 107, .07);
+  color: #d6aa42;
+  font-size: 11px;
+  line-height: 1.55;
 }
 .scan-panel {
   max-width: 1080px;

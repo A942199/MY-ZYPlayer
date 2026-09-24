@@ -7,6 +7,8 @@ const cheerio = require('cheerio')
 
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/153 Safari/537.36'
 const MAX_BODY = 3 * 1024 * 1024
+const DETAIL_TIMEOUT = 6000
+const FINGERPRINT_TIMEOUT = 4500
 const DOUBAN_MOVIE_ORIGIN = String(process.env.MY_ZYPLAYER_DOUBAN_MOVIE_ORIGIN || 'https://movie.douban.com').replace(/\/+$/, '')
 const DOUBAN_SEARCH_ORIGIN = String(process.env.MY_ZYPLAYER_DOUBAN_SEARCH_ORIGIN || 'https://www.douban.com').replace(/\/+$/, '')
 const IMAGE_CACHE_LIMIT = 120
@@ -230,10 +232,12 @@ function subjectIdFromHref (href) {
   return match ? match[1] : ''
 }
 
-async function subjectFingerprint (id, title) {
+async function subjectFingerprint (id, title, options = {}) {
   if (!title) return null
+  const request = options.requestText || requestText
   try {
-    const response = await requestText(DOUBAN_SEARCH_ORIGIN + '/search?cat=1002&q=' + encodeURIComponent(title), {
+    const response = await request(DOUBAN_SEARCH_ORIGIN + '/search?cat=1002&q=' + encodeURIComponent(title), {
+      timeout: Math.min(6000, Math.max(1500, Number(options.timeout) || FINGERPRINT_TIMEOUT)),
       headers: { Referer: 'https://www.douban.com/' }
     })
     if (response.status !== 200) return null
@@ -259,44 +263,113 @@ async function subjectFingerprint (id, title) {
   }
 }
 
-async function subjectDetail (payload = {}) {
-  const id = String(payload.id || '').replace(/[^0-9]/g, '')
-  if (!id) throw new Error('Douban subject id is required')
-  const response = await requestText(DOUBAN_MOVIE_ORIGIN + '/subject/' + id + '/', {
-    maxBytes: MAX_BODY,
-    headers: { Referer: 'https://movie.douban.com/' }
-  })
-  if (response.status !== 200) throw new Error('Douban detail HTTP ' + response.status)
-  const $ = cheerio.load(response.text)
-  const info = $('#info').text().replace(/\r/g, '')
-  const episodeCount = Number(infoValue(info, '集数')) || null
-  const kind = payload.kind === 'tv' || (episodeCount && episodeCount > 1)
-    ? 'tv'
-    : (payload.kind === 'movie' ? 'movie' : 'unknown')
-  const title = $('span[property="v:itemreviewed"]').first().text().trim() || String(payload.title || '').trim()
-  const fingerprint = await subjectFingerprint(id, title)
+function uniqueStrings (values) {
+  const list = Array.isArray(values) ? values : (values === undefined || values === null ? [] : [values])
+  return list
+    .map(value => String(value || '').trim())
+    .filter(Boolean)
+    .filter((value, index, array) => array.indexOf(value) === index)
+}
+
+function subjectKind (payload, episodeCount) {
+  if (payload.kind === 'tv' || (episodeCount && episodeCount > 1)) return 'tv'
+  if (payload.kind === 'movie') return 'movie'
+  return 'unknown'
+}
+
+function fallbackSubjectDetail (payload, id, fingerprint, error) {
   return {
     id,
-    title,
-    originalTitle: infoValue(info, '原名') || (fingerprint && fingerprint.originalTitle) || '',
-    aliases: infoValue(info, '又名').split('/').map(value => value.trim()).filter(Boolean),
-    year: firstYear($('.year').first().text()) || (fingerprint && fingerprint.year) || Number(payload.year) || null,
-    kind,
-    rate: $('strong[property="v:average"]').first().text().trim() || String(payload.rate || ''),
-    cover: String($('#mainpic img').first().attr('src') || payload.cover || ''),
-    summary: $('span[property="v:summary"]').first().text().replace(/\s+/g, ' ').trim(),
-    directors: $('a[rel="v:directedBy"]').map((i, el) => $(el).text().trim()).get().filter(Boolean).concat(
-      fingerprint && fingerprint.director ? [fingerprint.director] : []
-    ).filter((value, index, array) => array.indexOf(value) === index),
-    casts: $('a[rel="v:starring"]').map((i, el) => $(el).text().trim()).get().filter(Boolean).concat(
-      fingerprint && fingerprint.cast ? [fingerprint.cast] : []
-    ).filter((value, index, array) => array.indexOf(value) === index),
-    genres: $('span[property="v:genre"]').map((i, el) => $(el).text().trim()).get().filter(Boolean),
-    regions: splitInfoValue(infoValue(info, '制片国家/地区')),
-    languages: splitInfoValue(infoValue(info, '语言')),
-    episodeCount,
+    title: String(payload.title || '').trim(),
+    originalTitle: (fingerprint && fingerprint.originalTitle) || String(payload.originalTitle || '').trim(),
+    aliases: uniqueStrings(payload.aliases),
+    year: (fingerprint && fingerprint.year) || firstYear(payload.year) || null,
+    kind: subjectKind(payload, Number(payload.episodeCount) || null),
+    rate: String(payload.rate || ''),
+    cover: String(payload.cover || ''),
+    summary: String(payload.summary || ''),
+    directors: uniqueStrings([...(Array.isArray(payload.directors) ? payload.directors : []), fingerprint && fingerprint.director]),
+    casts: uniqueStrings([...(Array.isArray(payload.casts) ? payload.casts : []), fingerprint && fingerprint.cast]),
+    genres: uniqueStrings(payload.genres),
+    regions: uniqueStrings(payload.regions),
+    languages: uniqueStrings(payload.languages),
+    episodeCount: Number(payload.episodeCount) || null,
     fingerprint: (fingerprint && fingerprint.text) || '',
-    url: 'https://movie.douban.com/subject/' + id + '/'
+    url: 'https://movie.douban.com/subject/' + id + '/',
+    detailStatus: fingerprint ? 'partial' : 'degraded',
+    detailError: error ? String(error.message || error) : ''
+  }
+}
+
+async function subjectDetail (payload = {}, dependencies = {}) {
+  const id = String(payload.id || '').replace(/[^0-9]/g, '')
+  if (!id) throw new Error('Douban subject id is required')
+
+  const titleHint = String(payload.title || '').trim()
+  const fetchDetail = dependencies.requestText || requestText
+  const fetchFingerprint = dependencies.subjectFingerprint || subjectFingerprint
+  const detailUrl = DOUBAN_MOVIE_ORIGIN + '/subject/' + id + '/'
+
+  const [detailResult, fingerprintResult] = await Promise.allSettled([
+    fetchDetail(detailUrl, {
+      maxBytes: MAX_BODY,
+      timeout: DETAIL_TIMEOUT,
+      headers: { Referer: 'https://movie.douban.com/' }
+    }),
+    fetchFingerprint(id, titleHint, { timeout: FINGERPRINT_TIMEOUT })
+  ])
+
+  const fingerprint = fingerprintResult.status === 'fulfilled' ? fingerprintResult.value : null
+  let detailError = null
+  let response = null
+
+  if (detailResult.status === 'fulfilled') {
+    response = detailResult.value
+    if (!response || response.status !== 200) {
+      detailError = new Error('Douban detail HTTP ' + (response ? response.status : 0))
+      response = null
+    }
+  } else {
+    detailError = detailResult.reason
+  }
+
+  if (!response) return fallbackSubjectDetail(payload, id, fingerprint, detailError)
+
+  try {
+    const $ = cheerio.load(response.text)
+    const info = $('#info').text().replace(/\r/g, '')
+    const episodeCount = Number(infoValue(info, '集数')) || null
+    const kind = subjectKind(payload, episodeCount)
+    const title = $('span[property="v:itemreviewed"]').first().text().trim() || titleHint
+    return {
+      id,
+      title,
+      originalTitle: infoValue(info, '原名') || (fingerprint && fingerprint.originalTitle) || '',
+      aliases: uniqueStrings(infoValue(info, '又名').split('/')),
+      year: firstYear($('.year').first().text()) || (fingerprint && fingerprint.year) || firstYear(payload.year) || null,
+      kind,
+      rate: $('strong[property="v:average"]').first().text().trim() || String(payload.rate || ''),
+      cover: String($('#mainpic img').first().attr('src') || payload.cover || ''),
+      summary: $('span[property="v:summary"]').first().text().replace(/\s+/g, ' ').trim(),
+      directors: uniqueStrings(
+        $('a[rel="v:directedBy"]').map((i, el) => $(el).text().trim()).get()
+          .concat(fingerprint && fingerprint.director ? [fingerprint.director] : [])
+      ),
+      casts: uniqueStrings(
+        $('a[rel="v:starring"]').map((i, el) => $(el).text().trim()).get()
+          .concat(fingerprint && fingerprint.cast ? [fingerprint.cast] : [])
+      ),
+      genres: uniqueStrings($('span[property="v:genre"]').map((i, el) => $(el).text().trim()).get()),
+      regions: splitInfoValue(infoValue(info, '制片国家/地区')),
+      languages: splitInfoValue(infoValue(info, '语言')),
+      episodeCount,
+      fingerprint: (fingerprint && fingerprint.text) || '',
+      url: 'https://movie.douban.com/subject/' + id + '/',
+      detailStatus: 'full',
+      detailError: ''
+    }
+  } catch (error) {
+    return fallbackSubjectDetail(payload, id, fingerprint, error)
   }
 }
 

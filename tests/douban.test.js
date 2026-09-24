@@ -3,7 +3,7 @@
 const assert = require('assert')
 const http = require('http')
 const { scoreIdentity, normalizeTitle, identityKey, seasonValue, episodeValue, genericEpisodeLabel } = require('../src/lib/douban/identity')
-const { fetchImageData, probeUrl } = require('../src/main/douban/runtime')
+const { subjectDetail, fetchImageData, probeUrl } = require('../src/main/douban/runtime')
 
 async function withServer (handler, run) {
   const server = http.createServer(handler)
@@ -108,6 +108,58 @@ async function main () {
     { name: '白色巨塔', year: 2003, kind: 'tv', episodeLabel: '立即播放' }
   )
   assert.strictEqual(genericEpisodeDoesNotConflict.accepted, true)
+
+  const detailHtml = [
+    '<html><body>',
+    '<span property="v:itemreviewed">胜者即是正义</span>',
+    '<span class="year">(2012)</span>',
+    '<strong property="v:average">9.4</strong>',
+    '<div id="mainpic"><img src="https://img.invalid/legal-high.jpg"></div>',
+    '<div id="info">原名: リーガル・ハイ\\n又名: Legal High / 胜者即是正义\\n制片国家/地区: 日本\\n语言: 日语\\n集数: 11</div>',
+    '<a rel="v:directedBy">石川淳一</a>',
+    '<a rel="v:starring">堺雅人</a>',
+    '<span property="v:genre">剧情</span>',
+    '<span property="v:summary"> 法庭 喜剧 </span>',
+    '</body></html>'
+  ].join('')
+
+  const fullDetail = await subjectDetail(
+    { id: '10491666', title: '胜者即是正义', kind: 'tv', cover: 'fallback.jpg', rate: '9.4' },
+    {
+      requestText: async () => ({ status: 200, text: detailHtml }),
+      subjectFingerprint: async () => ({ year: 2012, originalTitle: 'リーガル・ハイ', director: '石川淳一', cast: '堺雅人', text: 'fingerprint' })
+    }
+  )
+  assert.strictEqual(fullDetail.detailStatus, 'full')
+  assert.strictEqual(fullDetail.year, 2012)
+  assert.strictEqual(fullDetail.kind, 'tv')
+  assert(fullDetail.directors.includes('石川淳一'))
+  assert(fullDetail.casts.includes('堺雅人'))
+
+  const partialDetail = await subjectDetail(
+    { id: '10491666', title: '胜者即是正义', kind: 'tv', cover: 'fallback.jpg', rate: '9.4' },
+    {
+      requestText: async () => { throw new Error('Request timed out') },
+      subjectFingerprint: async () => ({ year: 2012, originalTitle: 'リーガル・ハイ', director: '石川淳一', cast: '堺雅人', text: 'fingerprint' })
+    }
+  )
+  assert.strictEqual(partialDetail.detailStatus, 'partial')
+  assert.strictEqual(partialDetail.year, 2012)
+  assert.strictEqual(partialDetail.originalTitle, 'リーガル・ハイ')
+  assert.strictEqual(partialDetail.detailError, 'Request timed out')
+
+  const degradedDetail = await subjectDetail(
+    { id: '10491666', title: '胜者即是正义', kind: 'tv', cover: 'fallback.jpg', rate: '9.4' },
+    {
+      requestText: async () => { throw new Error('Request timed out') },
+      subjectFingerprint: async () => { throw new Error('Search unavailable') }
+    }
+  )
+  assert.strictEqual(degradedDetail.detailStatus, 'degraded')
+  assert.strictEqual(degradedDetail.title, '胜者即是正义')
+  assert.strictEqual(degradedDetail.kind, 'tv')
+  assert.strictEqual(degradedDetail.cover, 'fallback.jpg')
+  assert.strictEqual(degradedDetail.detailError, 'Request timed out')
 
   await withServer((req, res) => {
     if (req.url === '/direct.mp4') {
