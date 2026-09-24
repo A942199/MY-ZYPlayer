@@ -86,12 +86,18 @@ function requestBuffer (url, options = {}, redirects = 0) {
         else req.destroy(new Error('Response too large'))
       })
       res.on('end', () => {
-        resolve({
-          status,
-          headers: res.headers,
-          body: decodeBody(Buffer.concat(chunks), res.headers['content-encoding']),
-          url: target.href
-        })
+        try {
+          const body = decodeBody(Buffer.concat(chunks), res.headers['content-encoding'])
+          if (body.length > maxBytes) throw new Error('Response too large')
+          resolve({
+            status,
+            headers: res.headers,
+            body,
+            url: target.href
+          })
+        } catch (error) {
+          reject(error)
+        }
       })
     })
     req.setTimeout(options.timeout || 10000, () => req.destroy(new Error('Request timed out')))
