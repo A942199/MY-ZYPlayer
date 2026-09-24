@@ -511,7 +511,7 @@ export default {
         const selection = choosePlaylist(fullList, this.video.info.videoFlag, index)
         const playlist = selection.playlist
         index = selection.index
-        if (selection.fallback && selection.flag) this.video.info.videoFlag = selection.flag
+        if (selection.fallback) this.video.info.videoFlag = selection.flag || ''
         if (this.video.info.index !== index) this.video.info.index = index
         this.right.list = playlist
 
