@@ -18,23 +18,25 @@
     <div class="douban-status" v-if="loading">正在加载豆瓣内容…</div>
     <div class="douban-status error" v-else-if="error">{{error}}</div>
 
-    <div class="douban-grid zy-scroll" v-if="!selected">
+    <div class="douban-grid zy-scroll" v-if="!selected" @scroll.passive="onGridScroll">
       <div class="douban-card" v-for="item in list" :key="item.id" @click="selectSubject(item)">
         <div class="poster">
-          <img :src="item.cover" :alt="item.title" />
+          <img :src="coverSrc(item)" :alt="item.title" @error="loadCover(item)" />
           <span class="rate" v-if="item.rate">{{item.rate}}</span>
         </div>
         <div class="title">{{item.title}}</div>
         <div class="note" v-if="item.episodesInfo">{{item.episodesInfo}}</div>
       </div>
       <div class="empty" v-if="!loading && !list.length">没有结果</div>
+      <div class="douban-more" v-if="loadingMore">正在加载更多…</div>
+      <div class="douban-more" v-else-if="!searchMode && list.length && !hasMore">已经到底了</div>
     </div>
 
     <div class="match-view zy-scroll" v-else>
       <div class="match-head">
         <button class="back" @click="closeSubject">← 返回豆瓣</button>
         <div class="subject">
-          <img :src="selected.cover" />
+          <img :src="coverSrc(selected)" @error="loadCover(selected)" />
           <div>
             <h2>{{selected.title}}</h2>
             <div class="meta">
@@ -102,6 +104,11 @@ export default {
       tags: ['热门', '最新', '豆瓣高分'],
       list: [],
       loading: false,
+      loadingMore: false,
+      pageLimit: 30,
+      nextStart: 0,
+      hasMore: true,
+      loadGeneration: 0,
       error: '',
       searchText: '',
       searchMode: false,
@@ -142,23 +149,99 @@ export default {
   },
   methods: {
     async load () {
+      const generation = ++this.loadGeneration
       this.loading = true
+      this.loadingMore = false
       this.error = ''
+      this.nextStart = 0
+      this.hasMore = true
       try {
         const payload = await ipcRenderer.invoke('douban:list', {
           kind: this.kind,
           tag: this.tag,
           start: 0,
-          limit: 30
+          limit: this.pageLimit
         })
-        this.list = payload.list || []
+        if (generation !== this.loadGeneration) return
+        const rows = payload.list || []
+        this.list = rows
+        this.nextStart = rows.length
+        this.hasMore = rows.length >= this.pageLimit
         this.searchMode = false
+        this.hydrateCovers(rows)
+        this.$nextTick(() => this.ensureScrollable())
       } catch (error) {
+        if (generation !== this.loadGeneration) return
         this.error = '豆瓣加载失败：' + error.message
         this.list = []
+        this.hasMore = false
       } finally {
-        this.loading = false
+        if (generation === this.loadGeneration) this.loading = false
       }
+    },
+    async loadMore () {
+      if (this.loading || this.loadingMore || this.searchMode || this.selected || !this.hasMore) return
+      const generation = this.loadGeneration
+      this.loadingMore = true
+      try {
+        const payload = await ipcRenderer.invoke('douban:list', {
+          kind: this.kind,
+          tag: this.tag,
+          start: this.nextStart,
+          limit: this.pageLimit
+        })
+        if (generation !== this.loadGeneration) return
+        const rows = payload.list || []
+        const known = new Set(this.list.map(item => String(item.id || '')))
+        const added = rows.filter(item => !known.has(String(item.id || '')))
+        this.list = this.list.concat(added)
+        this.nextStart += rows.length
+        this.hasMore = rows.length >= this.pageLimit
+        this.hydrateCovers(added)
+        this.$nextTick(() => this.ensureScrollable())
+      } catch (error) {
+        if (generation === this.loadGeneration) this.error = '豆瓣加载更多失败：' + error.message
+      } finally {
+        if (generation === this.loadGeneration) this.loadingMore = false
+      }
+    },
+    onGridScroll (event) {
+      const el = event && event.currentTarget
+      if (!el || this.searchMode || this.selected) return
+      if (el.scrollHeight - el.scrollTop - el.clientHeight < 420) this.loadMore()
+    },
+    ensureScrollable () {
+      const el = this.$el && this.$el.querySelector('.douban-grid')
+      if (!el || el.offsetParent === null || el.clientHeight <= 0 || this.searchMode || this.selected || !this.hasMore || this.loadingMore) return
+      if (el.scrollHeight <= el.clientHeight + 80) this.loadMore()
+    },
+    coverSrc (item) {
+      return item && (item.coverData || item.cover) || ''
+    },
+    async loadCover (item) {
+      if (!item || !item.cover || item._coverProxyLoading || item._coverProxyTried) return
+      this.$set(item, '_coverProxyLoading', true)
+      this.$set(item, '_coverProxyTried', true)
+      try {
+        const payload = await ipcRenderer.invoke('douban:image', { url: item.cover })
+        if (payload && payload.dataUrl) this.$set(item, 'coverData', payload.dataUrl)
+      } catch (error) {
+        // Keep the card usable even when an individual poster fails.
+      } finally {
+        this.$set(item, '_coverProxyLoading', false)
+      }
+    },
+    hydrateCovers (rows) {
+      const queue = (rows || []).filter(item => item && item.cover && !item.coverData && !item._coverProxyTried)
+      let next = 0
+      const worker = async () => {
+        while (next < queue.length) {
+          const item = queue[next++]
+          await this.loadCover(item)
+        }
+      }
+      const count = Math.min(4, queue.length)
+      for (let i = 0; i < count; i++) worker()
     },
     changeKind (kind) {
       if (this.kind === kind && !this.searchMode) return
@@ -174,12 +257,16 @@ export default {
     },
     async search () {
       if (!this.searchText) return this.clearSearch()
+      this.loadGeneration++
+      this.loadingMore = false
+      this.hasMore = false
       this.loading = true
       this.error = ''
       try {
         const payload = await ipcRenderer.invoke('douban:search', { text: this.searchText })
         this.list = payload.list || []
         this.searchMode = true
+        this.hydrateCovers(this.list)
         this.selected = null
       } catch (error) {
         this.error = '豆瓣搜索失败：' + error.message
@@ -188,6 +275,7 @@ export default {
       }
     },
     clearSearch () {
+      this.loadGeneration++
       this.searchText = ''
       this.searchMode = false
       this.selected = null
@@ -314,6 +402,13 @@ input {
   gap: 18px;
   padding: 18px 4px 30px;
   align-content: start;
+}
+.douban-more {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 14px 0 4px;
+  opacity: .65;
+  font-size: 12px;
 }
 .douban-card {
   cursor: pointer;

@@ -9,6 +9,8 @@ const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36
 const MAX_BODY = 3 * 1024 * 1024
 const DOUBAN_MOVIE_ORIGIN = String(process.env.MY_ZYPLAYER_DOUBAN_MOVIE_ORIGIN || 'https://movie.douban.com').replace(/\/+$/, '')
 const DOUBAN_SEARCH_ORIGIN = String(process.env.MY_ZYPLAYER_DOUBAN_SEARCH_ORIGIN || 'https://www.douban.com').replace(/\/+$/, '')
+const IMAGE_CACHE_LIMIT = 120
+const imageDataCache = new Map()
 
 function normalizeHeaders (headers) {
   if (!headers) return {}
@@ -262,6 +264,34 @@ async function subjectDetail (payload = {}) {
   }
 }
 
+async function fetchImageData (payload = {}) {
+  const url = String(payload.url || '').trim()
+  if (!/^https?:\/\//i.test(url)) throw new Error('Douban image URL is invalid')
+  if (imageDataCache.has(url)) return imageDataCache.get(url)
+
+  const response = await requestBuffer(url, {
+    maxBytes: 5 * 1024 * 1024,
+    timeout: 12000,
+    headers: {
+      Accept: 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+      Referer: 'https://movie.douban.com/'
+    }
+  })
+  if (response.status !== 200) throw new Error('Douban image HTTP ' + response.status)
+  const contentType = String(response.headers['content-type'] || 'image/jpeg').split(';')[0].trim()
+  if (!contentType.startsWith('image/')) throw new Error('Douban image content type is invalid')
+  const result = {
+    url,
+    contentType,
+    dataUrl: 'data:' + contentType + ';base64,' + response.body.toString('base64')
+  }
+  imageDataCache.set(url, result)
+  while (imageDataCache.size > IMAGE_CACHE_LIMIT) {
+    imageDataCache.delete(imageDataCache.keys().next().value)
+  }
+  return result
+}
+
 function firstMediaUri (manifest, baseUrl) {
   for (const raw of String(manifest || '').split(/\r?\n/)) {
     const line = raw.trim()
@@ -326,7 +356,8 @@ function registerDoubanIpc (ipcMain) {
   ipcMain.handle('douban:list', (event, payload) => listSubjects(payload))
   ipcMain.handle('douban:search', (event, payload) => searchSubjects(payload))
   ipcMain.handle('douban:detail', (event, payload) => subjectDetail(payload))
+  ipcMain.handle('douban:image', (event, payload) => fetchImageData(payload))
   ipcMain.handle('douban:probe', (event, payload) => probeUrl(payload))
 }
 
-module.exports = { listSubjects, searchSubjects, subjectDetail, probeUrl, registerDoubanIpc }
+module.exports = { listSubjects, searchSubjects, subjectDetail, fetchImageData, probeUrl, registerDoubanIpc }

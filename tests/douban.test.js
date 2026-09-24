@@ -3,7 +3,7 @@
 const assert = require('assert')
 const http = require('http')
 const { scoreIdentity, normalizeTitle, identityKey, seasonValue, episodeValue, genericEpisodeLabel } = require('../src/lib/douban/identity')
-const { probeUrl } = require('../src/main/douban/runtime')
+const { fetchImageData, probeUrl } = require('../src/main/douban/runtime')
 
 async function withServer (handler, run) {
   const server = http.createServer(handler)
@@ -146,6 +146,21 @@ async function main () {
     assert.strictEqual(hls.ok, true)
     assert.strictEqual(hls.kind, 'hls')
     assert(hls.fragmentUrl.endsWith('/seg.ts'))
+  })
+
+  await withServer((req, res) => {
+    if (req.url === '/cover.jpg') {
+      const data = Buffer.from([0xff, 0xd8, 0xff, 0xd9])
+      res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Content-Length': data.length })
+      res.end(data)
+      return
+    }
+    res.writeHead(404)
+    res.end()
+  }, async port => {
+    const image = await fetchImageData({ url: 'http://127.0.0.1:' + port + '/cover.jpg' })
+    assert.strictEqual(image.contentType, 'image/jpeg')
+    assert(image.dataUrl.startsWith('data:image/jpeg;base64,'))
   })
 
   console.log('Douban identity and playback probe tests passed')
