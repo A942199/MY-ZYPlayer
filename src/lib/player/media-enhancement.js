@@ -1,8 +1,21 @@
 'use strict'
 
 const DEFAULT_CONFIG = Object.freeze({
-  baseUrl: 'https://video.zi-quan.com',
-  password: '',
+  providers: {
+    danmaku: {
+      dandanplayAppId: '',
+      dandanplayAppSecret: '',
+      compatibleUrls: [],
+      compatibleToken: ''
+    },
+    subtitles: {
+      jimakuApiKey: '',
+      assrtApiToken: '',
+      openSubtitlesApiKey: '',
+      openSubtitlesUserAgent: 'MY-ZYPlayer v2.9',
+      subdlApiKey: ''
+    }
+  },
   danmakuEnabled: true,
   subtitlesEnabled: false,
   danmaku: {
@@ -23,8 +36,26 @@ function normalizeMediaEnhancementConfig (value = {}) {
   const source = value && typeof value === 'object' ? value : {}
   const danmaku = source.danmaku && typeof source.danmaku === 'object' ? source.danmaku : {}
   return {
-    baseUrl: String(source.baseUrl || DEFAULT_CONFIG.baseUrl).trim() || DEFAULT_CONFIG.baseUrl,
-    password: String(source.password || ''),
+    providers: {
+      danmaku: {
+        dandanplayAppId: String(source.providers && source.providers.danmaku && source.providers.danmaku.dandanplayAppId || '').trim(),
+        dandanplayAppSecret: String(source.providers && source.providers.danmaku && source.providers.danmaku.dandanplayAppSecret || '').trim(),
+        compatibleUrls: Array.isArray(source.providers && source.providers.danmaku && source.providers.danmaku.compatibleUrls) ? source.providers.danmaku.compatibleUrls.map(value => String(value || '').trim()).filter(Boolean).slice(0, 12) : [],
+        compatibleToken: String(source.providers && source.providers.danmaku && source.providers.danmaku.compatibleToken || '').trim(),
+        dandanplayBaseUrl: String(source.providers && source.providers.danmaku && source.providers.danmaku.dandanplayBaseUrl || '').trim()
+      },
+      subtitles: {
+        jimakuApiKey: String(source.providers && source.providers.subtitles && source.providers.subtitles.jimakuApiKey || '').trim(),
+        assrtApiToken: String(source.providers && source.providers.subtitles && source.providers.subtitles.assrtApiToken || '').trim(),
+        openSubtitlesApiKey: String(source.providers && source.providers.subtitles && source.providers.subtitles.openSubtitlesApiKey || '').trim(),
+        openSubtitlesUserAgent: String(source.providers && source.providers.subtitles && source.providers.subtitles.openSubtitlesUserAgent || 'MY-ZYPlayer v2.9').trim(),
+        subdlApiKey: String(source.providers && source.providers.subtitles && source.providers.subtitles.subdlApiKey || '').trim(),
+        jimakuBaseUrl: String(source.providers && source.providers.subtitles && source.providers.subtitles.jimakuBaseUrl || '').trim(),
+        assrtBaseUrl: String(source.providers && source.providers.subtitles && source.providers.subtitles.assrtBaseUrl || '').trim(),
+        openSubtitlesBaseUrl: String(source.providers && source.providers.subtitles && source.providers.subtitles.openSubtitlesBaseUrl || '').trim(),
+        subdlBaseUrl: String(source.providers && source.providers.subtitles && source.providers.subtitles.subdlBaseUrl || '').trim()
+      }
+    },
     danmakuEnabled: source.danmakuEnabled !== false,
     // Product invariant: external subtitles are opt-in per playback and never auto-requested.
     subtitlesEnabled: false,
