@@ -33,9 +33,84 @@ function getJson (url) {
 function startMockServer () {
   return new Promise(resolve => {
     const server = http.createServer((req, res) => {
-      server.e2eStats = server.e2eStats || { videoRequests: 0, playbackHeader: '' }
+      server.e2eStats = server.e2eStats || {
+        videoRequests: 0,
+        playbackHeader: '',
+        danmakuRequests: 0,
+        subtitleResolveRequests: 0,
+        subtitleFetchRequests: 0,
+        companionAuth: []
+      }
       const origin = 'http://127.0.0.1:' + server.address().port
       const target = new URL(req.url, origin)
+      if (target.pathname === '/api/danmaku/resolve' || target.pathname === '/api/subtitles/resolve' || target.pathname === '/api/subtitles/fetch') {
+        server.e2eStats.companionAuth.push(String(req.headers['x-password'] || ''))
+        if (req.headers['x-password'] !== 'e2e-secret') {
+          res.writeHead(401, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: 'site_unauthorized' }))
+          return
+        }
+      }
+      if (target.pathname === '/api/danmaku/resolve' && req.method === 'POST') {
+        server.e2eStats.danmakuRequests++
+        let body = ''
+        req.on('data', chunk => { body += chunk })
+        req.on('end', () => {
+          const media = JSON.parse(body || '{}')
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({
+            enabled: true,
+            matched: true,
+            provider: 'e2e',
+            providerName: 'E2E Danmaku',
+            episode: media.episode,
+            comments: [
+              { time: 0.05, mode: 'scroll', color: '#ffffff', text: 'E2E 弹幕' },
+              { time: 0.2, mode: 'top', color: '#ffcc00', text: 'トップ' }
+            ]
+          }))
+        })
+        return
+      }
+      if (target.pathname === '/api/subtitles/resolve' && req.method === 'POST') {
+        server.e2eStats.subtitleResolveRequests++
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({
+          ok: true,
+          autoSelectIndex: 0,
+          identity: { title: 'FAST detail', originalTitle: 'テストドラマ' },
+          candidates: [
+            {
+              provider: 'e2e',
+              providerRef: 'ja-1',
+              language: 'ja',
+              label: '日本語',
+              fileName: 'e2e-ja.vtt',
+              fetchUrl: '/api/subtitles/fetch?key=e2e&provider=e2e&ref=ja-1'
+            },
+            {
+              provider: 'e2e',
+              providerRef: 'en-1',
+              language: 'en',
+              label: 'English',
+              fileName: 'e2e-en.vtt',
+              fetchUrl: '/api/subtitles/fetch?key=e2e&provider=e2e&ref=en-1'
+            }
+          ]
+        }))
+        return
+      }
+      if (target.pathname === '/api/subtitles/fetch' && req.method === 'GET') {
+        server.e2eStats.subtitleFetchRequests++
+        const body = Buffer.from('WEBVTT\n\n00:00:00.000 --> 00:00:00.800\nテスト字幕\n')
+        res.writeHead(200, {
+          'Content-Type': 'text/vtt;charset=UTF-8',
+          'X-Subtitle-Language': 'ja',
+          'Content-Length': body.length
+        })
+        res.end(body)
+        return
+      }
       if (target.pathname === '/video.mp4') {
         server.e2eStats.videoRequests++
         server.e2eStats.playbackHeader = req.headers['x-e2e-playback'] || ''
@@ -213,8 +288,9 @@ async function main () {
       "const request=indexedDB.open('zy');" +
       "request.onerror=()=>reject(request.error);" +
       "request.onsuccess=()=>{" +
-      "const db=request.result;const tx=db.transaction('sites','readwrite');const store=tx.objectStore('sites');" +
+      "const db=request.result;const tx=db.transaction(['sites','setting'],'readwrite');const store=tx.objectStore('sites');const settings=tx.objectStore('setting');" +
       "store.clear();const rows=" + JSON.stringify(mockSites) + ";for(const row of rows)store.add(row);" +
+      "const getSetting=settings.get(0);getSetting.onsuccess=()=>{const row=getSetting.result||{id:0};row.mediaEnhancement={baseUrl:" + JSON.stringify(JSON.stringify(base)) + ",password:'e2e-secret',danmakuEnabled:true,subtitlesEnabled:false,danmaku:{opacity:0.86,fontSize:24,speed:150,area:0.62,offset:0}};settings.put(row)};" +
       "tx.oncomplete=()=>{db.close();resolve(true)};tx.onerror=()=>reject(tx.error)}" +
       "})"
     )
@@ -393,6 +469,48 @@ async function main () {
     assert(server.e2eStats.videoRequests > 0, 'Media bytes were never requested')
     assert.strictEqual(server.e2eStats.playbackHeader, 'yes', 'Playback request headers were not applied')
 
+    let enhancementState = null
+    for (let index = 0; index < 80; index++) {
+      const value = await evaluate(
+        "(() => {const root=document.querySelector('#app').__vue__;const seen=new Set();function walk(c){if(!c||seen.has(c))return null;seen.add(c);if(String(c.$options&&c.$options.name).toLowerCase()==='play')return c;for(const child of(c.$children||[])){const found=walk(child);if(found)return found}return null}const p=walk(root);if(!p)return null;return JSON.stringify({danmaku:p.danmakuState,subtitle:p.subtitleState,toggles:document.querySelectorAll('.media-feature-toggle').length,canvas:!!document.querySelector('.zy-danmaku-canvas')})})()"
+      )
+      if (value) {
+        enhancementState = JSON.parse(value)
+        if (enhancementState.danmaku && enhancementState.danmaku.count === 2 && enhancementState.canvas) break
+      }
+      await sleep(100)
+    }
+    assert(enhancementState, 'Media enhancement state was not created')
+    assert.strictEqual(enhancementState.toggles, 2, 'Subtitle/danmaku player controls were not rendered')
+    assert.strictEqual(enhancementState.canvas, true, 'Danmaku canvas was not attached to the player')
+    assert.strictEqual(enhancementState.danmaku.enabled, true, 'Danmaku should be enabled by default')
+    assert.strictEqual(enhancementState.danmaku.count, 2, 'Danmaku comments were not loaded')
+    assert.strictEqual(server.e2eStats.danmakuRequests > 0, true, 'Danmaku resolve endpoint was not called')
+    assert.strictEqual(server.e2eStats.subtitleResolveRequests, 0, 'Subtitles must not request data while default-off')
+
+    const subtitleEnabled = await evaluate(
+      "(async()=>{const root=document.querySelector('#app').__vue__;const seen=new Set();function walk(c){if(!c||seen.has(c))return null;seen.add(c);if(String(c.$options&&c.$options.name).toLowerCase()==='play')return c;for(const child of(c.$children||[])){const found=walk(child);if(found)return found}return null}const p=walk(root);if(!p)return false;await p.toggleSubtitles();return true})()"
+    )
+    assert.strictEqual(subtitleEnabled, true, 'Could not enable subtitles')
+    let subtitleState = null
+    for (let index = 0; index < 80; index++) {
+      const value = await evaluate(
+        "(() => {const root=document.querySelector('#app').__vue__;const seen=new Set();function walk(c){if(!c||seen.has(c))return null;seen.add(c);if(String(c.$options&&c.$options.name).toLowerCase()==='play')return c;for(const child of(c.$children||[])){const found=walk(child);if(found)return found}return null}const p=walk(root);const track=document.querySelector('#xgplayer track[data-zy-companion-subtitle]');return JSON.stringify({state:p&&p.subtitleState,track:!!track,label:track&&track.label})})()"
+      )
+      if (value) {
+        subtitleState = JSON.parse(value)
+        if (subtitleState.track && subtitleState.state && subtitleState.state.selectedIndex === 0) break
+      }
+      await sleep(100)
+    }
+    assert(subtitleState && subtitleState.track, 'Japanese subtitle track was not attached')
+    assert.strictEqual(subtitleState.state.enabled, true)
+    assert.strictEqual(subtitleState.state.candidates.length, 1, 'Non-Japanese subtitle candidate leaked into desktop player')
+    assert.strictEqual(subtitleState.state.candidates[0].language, 'ja')
+    assert.strictEqual(server.e2eStats.subtitleResolveRequests > 0, true, 'Subtitle resolve endpoint was not called after opt-in')
+    assert.strictEqual(server.e2eStats.subtitleFetchRequests > 0, true, 'Subtitle VTT was not fetched')
+    assert(server.e2eStats.companionAuth.length > 0 && server.e2eStats.companionAuth.every(value => value === 'e2e-secret'), 'Companion auth header missing')
+
     const pausedState = JSON.parse(await evaluate(
       "(() => {const video=document.querySelector('#xgplayer video');video.currentTime=Math.min(0.35,video.duration/2);video.pause();" +
       "return JSON.stringify({paused:video.paused,currentTime:video.currentTime})})()"
@@ -506,6 +624,14 @@ async function main () {
       },
       detailOpened: detail.visible,
       sourceManager: sourceManagerResult,
+      mediaEnhancement: {
+        danmakuRequests: server.e2eStats.danmakuRequests,
+        danmakuCount: enhancementState.danmaku.count,
+        subtitleResolveRequests: server.e2eStats.subtitleResolveRequests,
+        subtitleFetchRequests: server.e2eStats.subtitleFetchRequests,
+        subtitleLanguage: subtitleState.state.candidates[0].language,
+        subtitleDefaultOff: true
+      },
       playback: {
         firstFrameReady: playState.readyState >= 2 && playState.videoWidth > 0,
         duration: playState.duration,
