@@ -916,7 +916,7 @@ export default {
         })
       })
     },
-    isValidSearchResult (detailRes) {    isValidSearchResult (detailRes) {
+    isValidSearchResult (detailRes) {
       return detailRes.dl.dd && (detailRes.dl.dd._t || (Object.prototype.toString.call(detailRes.dl.dd) === '[object Array]' &&
              detailRes.dl.dd.some(i => i._t)))
     },
@@ -947,7 +947,7 @@ export default {
         this.$message.error('获取云端源站失败. ' + error)
       }
     },
-    getAllSites () {    getAllSites () {
+    getAllSites () {
       sites.all().then(res => {
         if (res.length <= 0) {
           this.$message.warning('检测到视频源未能正常加载, 即将重置源.')
