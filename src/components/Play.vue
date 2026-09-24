@@ -1011,10 +1011,7 @@ export default {
       })
     },
     mediaServiceConfig () {
-      return {
-        baseUrl: this.mediaEnhancementConfig.baseUrl,
-        password: this.mediaEnhancementConfig.password
-      }
+      return this.mediaEnhancementConfig.providers
     },
     async persistMediaEnhancementConfig () {
       const normalized = normalizeMediaEnhancementConfig(this.mediaEnhancementConfig)

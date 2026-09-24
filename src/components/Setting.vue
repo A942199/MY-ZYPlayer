@@ -75,14 +75,14 @@
         </div>
       </div>
       <div class="site">
-        <div class="title">字幕与弹幕</div>
+        <div class="title">字幕与弹幕（本地）</div>
         <div class="site-box media-enhancement-settings">
           <div class="zy-input">
             <input type="checkbox" v-model="d.mediaEnhancement.danmakuEnabled" @change="saveMediaEnhancementQuick"> 默认开启弹幕
             <span>字幕默认关闭（播放时手动开启）</span>
           </div>
           <div class="zy-select">
-            <div class="vs-placeholder vs-noAfter" @click="openMediaEnhancementDialog">MyVideo 服务设置</div>
+            <div class="vs-placeholder vs-noAfter" @click="openMediaEnhancementDialog">本地字幕/弹幕源设置</div>
           </div>
           <div class="media-enhancement-note">字幕仅允许日本語 / 日中双语；字幕默认关闭时不会发送字幕请求。</div>
         </div>
@@ -162,16 +162,37 @@
         </span>
       </el-dialog>
     </div>
-    <div> <!-- MyVideo 字幕/弹幕服务 -->
-      <el-dialog :visible.sync="show.mediaEnhancementDialog" v-if="show.mediaEnhancementDialog" title="MyVideo 字幕/弹幕服务" :append-to-body="true" @close="closeDialog" width="520px">
+    <div> <!-- 本地字幕/弹幕源 -->
+      <el-dialog :visible.sync="show.mediaEnhancementDialog" v-if="show.mediaEnhancementDialog" title="本地字幕/弹幕源" :append-to-body="true" @close="closeDialog" width="520px">
         <el-form label-width="90px" label-position="left" size="small">
-          <el-form-item label="服务地址">
-            <el-input v-model="mediaEnhancementDraft.baseUrl" placeholder="https://video.zi-quan.com" />
+          <el-form-item label="弹弹 App ID">
+            <el-input v-model="mediaEnhancementDraft.providers.danmaku.dandanplayAppId" placeholder="DANDANPLAY_APP_ID" />
           </el-form-item>
-          <el-form-item label="访问密码">
-            <el-input v-model="mediaEnhancementDraft.password" type="password" show-password placeholder="MyVideo ACCESS_PASSWORD" />
+          <el-form-item label="弹弹 Secret">
+            <el-input v-model="mediaEnhancementDraft.providers.danmaku.dandanplayAppSecret" type="password" show-password placeholder="DANDANPLAY_APP_SECRET" />
           </el-form-item>
-          <div class="media-enhancement-dialog-note">播放器通过 MyVideo 的 /api/danmaku/resolve 与 /api/subtitles/resolve 使用现有多源匹配、缓存和字幕语言策略。密码仅保存在本机设置数据库。</div>
+          <el-form-item label="兼容弹幕源">
+            <el-input v-model="compatibleDanmakuUrlsText" type="textarea" :rows="2" placeholder="每行一个兼容弹幕 API 根地址" />
+          </el-form-item>
+          <el-form-item label="弹幕 Token">
+            <el-input v-model="mediaEnhancementDraft.providers.danmaku.compatibleToken" type="password" show-password placeholder="可选 Bearer Token" />
+          </el-form-item>
+          <el-form-item label="Jimaku Key">
+            <el-input v-model="mediaEnhancementDraft.providers.subtitles.jimakuApiKey" type="password" show-password />
+          </el-form-item>
+          <el-form-item label="ASSRT Token">
+            <el-input v-model="mediaEnhancementDraft.providers.subtitles.assrtApiToken" type="password" show-password />
+          </el-form-item>
+          <el-form-item label="OpenSub Key">
+            <el-input v-model="mediaEnhancementDraft.providers.subtitles.openSubtitlesApiKey" type="password" show-password />
+          </el-form-item>
+          <el-form-item label="OpenSub UA">
+            <el-input v-model="mediaEnhancementDraft.providers.subtitles.openSubtitlesUserAgent" placeholder="MY-ZYPlayer v2.9" />
+          </el-form-item>
+          <el-form-item label="SubDL Key">
+            <el-input v-model="mediaEnhancementDraft.providers.subtitles.subdlApiKey" type="password" show-password />
+          </el-form-item>
+          <div class="media-enhancement-dialog-note">所有匹配直接由本机 Electron 主进程连接弹幕/字幕提供方，不再经过 video.zi-quan.com。API Key 只保存在本机设置数据库。</div>
         </el-form>
         <span slot="footer" class="dialog-footer">
           <el-button @click="closeDialog">取消</el-button>
@@ -287,6 +308,7 @@ export default {
         port: ''
       },
       mediaEnhancementDraft: normalizeMediaEnhancementConfig(),
+      compatibleDanmakuUrlsText: '',
       update: {
         find: false,
         version: '',
@@ -407,6 +429,7 @@ export default {
     },
     openMediaEnhancementDialog () {
       this.mediaEnhancementDraft = normalizeMediaEnhancementConfig(this.d.mediaEnhancement)
+      this.compatibleDanmakuUrlsText = (this.mediaEnhancementDraft.providers.danmaku.compatibleUrls || []).join('\n')
       this.show.mediaEnhancementDialog = true
     },
     async saveMediaEnhancementQuick () {
@@ -414,10 +437,11 @@ export default {
       await this.updateSettingEvent()
     },
     async saveMediaEnhancementService () {
+      const draft = normalizeMediaEnhancementConfig(this.mediaEnhancementDraft)
+      draft.providers.danmaku.compatibleUrls = String(this.compatibleDanmakuUrlsText || '').split(/[\r\n,;]+/).map(value => value.trim()).filter(Boolean).slice(0, 12)
       const normalized = normalizeMediaEnhancementConfig({
         ...this.d.mediaEnhancement,
-        baseUrl: this.mediaEnhancementDraft.baseUrl,
-        password: this.mediaEnhancementDraft.password
+        providers: draft.providers
       })
       this.d.mediaEnhancement = normalized
       await this.updateSettingEvent()
@@ -427,9 +451,9 @@ export default {
     resetMediaEnhancementService () {
       this.mediaEnhancementDraft = normalizeMediaEnhancementConfig({
         ...this.d.mediaEnhancement,
-        baseUrl: 'https://video.zi-quan.com',
-        password: ''
+        providers: {}
       })
+      this.compatibleDanmakuUrlsText = ''
     },
     async closeDialog () {
       this.show.checkPasswordDialog = false

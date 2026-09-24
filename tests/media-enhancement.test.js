@@ -15,19 +15,23 @@ const { romanizeKanaTitle, embeddedAllowed } = require('../src/lib/player/subtit
 
 function main () {
   const defaults = normalizeMediaEnhancementConfig()
-  assert.strictEqual(defaults.baseUrl, DEFAULT_CONFIG.baseUrl)
+  assert(defaults.providers && defaults.providers.danmaku && defaults.providers.subtitles)
   assert.strictEqual(defaults.danmakuEnabled, true)
   assert.strictEqual(defaults.subtitlesEnabled, false)
   assert.strictEqual(defaults.danmaku.opacity, 0.86)
 
   const clamped = normalizeMediaEnhancementConfig({
-    baseUrl: ' https://example.test ',
-    password: 'secret',
+    providers: {
+      danmaku: { dandanplayAppId: ' app ', compatibleUrls: ['https://example.test/dm'] },
+      subtitles: { jimakuApiKey: ' jimaku ', openSubtitlesUserAgent: ' ua ' }
+    },
     danmakuEnabled: false,
     subtitlesEnabled: true,
     danmaku: { opacity: 4, fontSize: 2, speed: 999, area: 0, offset: -999 }
   })
-  assert.strictEqual(clamped.baseUrl, 'https://example.test')
+  assert.strictEqual(clamped.providers.danmaku.dandanplayAppId, 'app')
+  assert.deepStrictEqual(clamped.providers.danmaku.compatibleUrls, ['https://example.test/dm'])
+  assert.strictEqual(clamped.providers.subtitles.jimakuApiKey, 'jimaku')
   assert.strictEqual(clamped.danmakuEnabled, false)
   assert.strictEqual(clamped.subtitlesEnabled, false)
   assert.deepStrictEqual(clamped.danmaku, {

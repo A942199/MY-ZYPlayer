@@ -43,71 +43,52 @@ function startMockServer () {
       }
       const origin = 'http://127.0.0.1:' + server.address().port
       const target = new URL(req.url, origin)
-      if (target.pathname === '/api/danmaku/resolve' || target.pathname === '/api/subtitles/resolve' || target.pathname === '/api/subtitles/fetch') {
-        server.e2eStats.companionAuth.push(String(req.headers['x-password'] || ''))
-        if (req.headers['x-password'] !== 'e2e-secret') {
-          res.writeHead(401, { 'Content-Type': 'application/json' })
-          res.end(JSON.stringify({ error: 'site_unauthorized' }))
-          return
-        }
-      }
-      if (target.pathname === '/api/danmaku/resolve' && req.method === 'POST') {
+      if (target.pathname === '/api/v2/search/episodes') {
         server.e2eStats.danmakuRequests++
-        let body = ''
-        req.on('data', chunk => { body += chunk })
-        req.on('end', () => {
-          const media = JSON.parse(body || '{}')
-          res.writeHead(200, { 'Content-Type': 'application/json' })
-          res.end(JSON.stringify({
-            enabled: true,
-            matched: true,
-            provider: 'e2e',
-            providerName: 'E2E Danmaku',
-            episode: media.episode,
-            comments: [
-              { time: 0.05, mode: 'scroll', color: '#ffffff', text: 'E2E 弹幕' },
-              { time: 0.2, mode: 'top', color: '#ffcc00', text: 'トップ' }
-            ]
-          }))
-        })
-        return
-      }
-      if (target.pathname === '/api/subtitles/resolve' && req.method === 'POST') {
-        server.e2eStats.subtitleResolveRequests++
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({
-          ok: true,
-          autoSelectIndex: 0,
-          identity: { title: 'FAST detail', originalTitle: 'テストドラマ' },
-          candidates: [
-            {
-              provider: 'e2e',
-              providerRef: 'ja-1',
-              language: 'ja',
-              label: '日本語',
-              fileName: 'e2e-ja.vtt',
-              fetchUrl: '/api/subtitles/fetch?key=e2e&provider=e2e&ref=ja-1'
-            },
-            {
-              provider: 'e2e',
-              providerRef: 'en-1',
-              language: 'en',
-              label: 'English',
-              fileName: 'e2e-en.vtt',
-              fetchUrl: '/api/subtitles/fetch?key=e2e&provider=e2e&ref=en-1'
-            }
+          animes: [{
+            animeTitle: 'FAST detail',
+            episodes: [{ episodeId: 'e2e-ep', episodeTitle: '第1集', episodeNumber: 1 }]
+          }]
+        }))
+        return
+      }
+      if (target.pathname === '/api/v2/comment/e2e-ep') {
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({
+          comments: [
+            { time: 0.05, mode: 'scroll', color: '#ffffff', text: 'E2E 弹幕' },
+            { time: 0.2, mode: 'top', color: '#ffcc00', text: 'トップ' }
           ]
         }))
         return
       }
-      if (target.pathname === '/api/subtitles/fetch' && req.method === 'GET') {
+      if (target.pathname === '/api/entries/search') {
+        server.e2eStats.subtitleResolveRequests++
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify([{ id: 88, name: 'FAST detail' }]))
+        return
+      }
+      if (target.pathname === '/api/entries/88/files') {
+        const origin = 'http://127.0.0.1:' + server.address().port
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify([
+          { name: 'FAST.S01E01.Japanese.vtt', language: 'ja', url: origin + '/subtitle.vtt' },
+          { name: 'FAST.S01E01.English.vtt', language: 'en', url: origin + '/subtitle-en.vtt' }
+        ]))
+        return
+      }
+      if (target.pathname === '/subtitle.vtt') {
         server.e2eStats.subtitleFetchRequests++
-        const body = Buffer.from('WEBVTT\n\n00:00:00.000 --> 00:00:00.800\nテスト字幕\n')
-        res.writeHead(200, {
-          'Content-Type': 'text/vtt;charset=UTF-8',
-          'X-Subtitle-Language': 'ja',
-          'Content-Length': body.length
-        })
+        const body = Buffer.from('WEBVTT\n\n00:00:00.000 --> 00:00:00.800\nテスト字幕です\n')
+        res.writeHead(200, { 'Content-Type': 'text/vtt;charset=UTF-8', 'Content-Length': body.length })
+        res.end(body)
+        return
+      }
+      if (target.pathname === '/subtitle-en.vtt') {
+        const body = Buffer.from('WEBVTT\n\n00:00:00.000 --> 00:00:00.800\nEnglish only\n')
+        res.writeHead(200, { 'Content-Type': 'text/vtt;charset=UTF-8', 'Content-Length': body.length })
         res.end(body)
         return
       }
@@ -297,16 +278,16 @@ async function main () {
     await evaluate('location.reload(); true')
     await sleep(1000)
 
-    const companionConfigured = await evaluate(
-      "(async()=>{const root=document.querySelector('#app').__vue__;const seen=new Set();function walk(c){if(!c||seen.has(c))return null;seen.add(c);if(String(c.$options&&c.$options.name).toLowerCase()==='setting')return c;for(const child of(c.$children||[])){const found=walk(child);if(found)return found}return null}const s=walk(root);if(!s)return false;s.mediaEnhancementDraft={...(s.d.mediaEnhancement||{}),baseUrl:" + JSON.stringify(base) + ",password:'e2e-secret'};await s.saveMediaEnhancementService();return true})()"
+    const localProvidersConfigured = await evaluate(
+      "(async()=>{const root=document.querySelector('#app').__vue__;const seen=new Set();function walk(c){if(!c||seen.has(c))return null;seen.add(c);if(String(c.$options&&c.$options.name).toLowerCase()==='setting')return c;for(const child of(c.$children||[])){const found=walk(child);if(found)return found}return null}const s=walk(root);if(!s)return false;s.mediaEnhancementDraft={...(s.d.mediaEnhancement||{}),providers:{danmaku:{compatibleUrls:[" + JSON.stringify(base) + "]},subtitles:{jimakuApiKey:'e2e-key',jimakuBaseUrl:" + JSON.stringify(base) + "}}};s.compatibleDanmakuUrlsText=" + JSON.stringify(base) + ";await s.saveMediaEnhancementService();return true})()"
     )
-    assert.strictEqual(companionConfigured, true, 'Could not configure companion service through Settings')
+    assert.strictEqual(localProvidersConfigured, true, 'Could not configure local media providers through Settings')
     const persistedEnhancement = JSON.parse(await evaluate(
       "new Promise((resolve,reject)=>{const request=indexedDB.open('zy');request.onerror=()=>reject(request.error);request.onsuccess=()=>{const db=request.result;const tx=db.transaction('setting','readonly');const get=tx.objectStore('setting').get(0);get.onsuccess=()=>{const row=get.result||{};db.close();resolve(JSON.stringify(row.mediaEnhancement||null))};get.onerror=()=>reject(get.error)}})"
     ))
     assert(persistedEnhancement, 'Media enhancement settings were not persisted')
-    assert.strictEqual(persistedEnhancement.baseUrl, base, 'Companion base URL was not persisted from Settings')
-    assert.strictEqual(persistedEnhancement.password, 'e2e-secret', 'Companion password was not persisted from Settings')
+    assert.deepStrictEqual(persistedEnhancement.providers.danmaku.compatibleUrls, [base], 'Local danmaku provider was not persisted from Settings')
+    assert.strictEqual(persistedEnhancement.providers.subtitles.jimakuApiKey, 'e2e-key', 'Local subtitle provider key was not persisted from Settings')
 
     const stateExpression =
       "(() => {" +
@@ -495,7 +476,7 @@ async function main () {
     assert.strictEqual(enhancementState.canvas, true, 'Danmaku canvas was not attached to the player')
     assert.strictEqual(enhancementState.danmaku.enabled, true, 'Danmaku should be enabled by default')
     assert.strictEqual(enhancementState.danmaku.count, 2, 'Danmaku comments were not loaded: ' + JSON.stringify({ enhancementState, stats: server.e2eStats }))
-    assert.strictEqual(server.e2eStats.danmakuRequests > 0, true, 'Danmaku resolve endpoint was not called')
+    assert.strictEqual(server.e2eStats.danmakuRequests > 0, true, 'Local danmaku provider was not called')
     assert.strictEqual(server.e2eStats.subtitleResolveRequests, 0, 'Subtitles must not request data while default-off')
 
     const subtitleEnabled = await evaluate(
@@ -517,9 +498,8 @@ async function main () {
     assert.strictEqual(subtitleState.state.enabled, true)
     assert.strictEqual(subtitleState.state.candidates.length, 1, 'Non-Japanese subtitle candidate leaked into desktop player')
     assert.strictEqual(subtitleState.state.candidates[0].language, 'ja')
-    assert.strictEqual(server.e2eStats.subtitleResolveRequests > 0, true, 'Subtitle resolve endpoint was not called after opt-in')
+    assert.strictEqual(server.e2eStats.subtitleResolveRequests > 0, true, 'Local subtitle provider was not called after opt-in')
     assert.strictEqual(server.e2eStats.subtitleFetchRequests > 0, true, 'Subtitle VTT was not fetched')
-    assert(server.e2eStats.companionAuth.length > 0 && server.e2eStats.companionAuth.every(value => value === 'e2e-secret'), 'Companion auth header missing')
 
     const pausedState = JSON.parse(await evaluate(
       "(() => {const video=document.querySelector('#xgplayer video');video.currentTime=Math.min(0.35,video.duration/2);video.pause();" +
