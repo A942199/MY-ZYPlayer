@@ -873,14 +873,21 @@ export default {
       this.statusText = ' '
       this.searchRunning = true
       this.siteSearchCount = 0
+      const targets = this.searchSites.filter(Boolean)
+      if (!targets.length) {
+        this.searchRunning = false
+        this.statusText = '暂无可用源'
+        return
+      }
 
       const markSiteComplete = () => {
         if (id !== this.searchID) return
         this.siteSearchCount += 1
+        if (this.siteSearchCount >= targets.length) this.searchRunning = false
         if (!this.searchContents.length) this.statusText = '暂无数据'
       }
 
-      this.searchSites.forEach(site => {
+      targets.forEach(site => {
         zy.search(site.key, wd).then(res => {
           if (id !== this.searchID || !this.searchRunning) return
           const rows = Array.isArray(res) ? res : (res && typeof res === 'object' ? [res] : [])
