@@ -102,6 +102,7 @@ async function main () {
     assert.deepStrictEqual(subtitles.candidates.map(row => row.language), ['ja'])
     assert.strictEqual(subtitles.autoSelectIndex, 0)
 
+    assert.strictEqual(subtitles.candidates[0].fetchUrl, '/api/subtitles/fetch?key=k&provider=e2e&ref=ja')
     const subtitle = await fetchSubtitle({
       config,
       fetchUrl: subtitles.candidates[0].fetchUrl
