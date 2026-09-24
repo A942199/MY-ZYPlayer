@@ -75,6 +75,19 @@
         </div>
       </div>
       <div class="site">
+        <div class="title">字幕与弹幕</div>
+        <div class="site-box media-enhancement-settings">
+          <div class="zy-input">
+            <input type="checkbox" v-model="d.mediaEnhancement.danmakuEnabled" @change="saveMediaEnhancementQuick"> 默认开启弹幕
+            <span>字幕默认关闭（播放时手动开启）</span>
+          </div>
+          <div class="zy-select">
+            <div class="vs-placeholder vs-noAfter" @click="openMediaEnhancementDialog">MyVideo 服务设置</div>
+          </div>
+          <div class="media-enhancement-note">字幕仅允许日本語 / 日中双语；字幕默认关闭时不会发送字幕请求。</div>
+        </div>
+      </div>
+      <div class="site">
         <div class="title">窗口及播放</div>
         <div class="site-box">
           <div class="zy-input">
@@ -146,6 +159,24 @@
           <el-button @click="closeDialog">取消</el-button>
           <el-button type="danger" @click="resetDefaultSitesDataURL">重置</el-button>
           <el-button type="primary" @click="configSitesDataURL">确定</el-button>
+        </span>
+      </el-dialog>
+    </div>
+    <div> <!-- MyVideo 字幕/弹幕服务 -->
+      <el-dialog :visible.sync="show.mediaEnhancementDialog" v-if="show.mediaEnhancementDialog" title="MyVideo 字幕/弹幕服务" :append-to-body="true" @close="closeDialog" width="520px">
+        <el-form label-width="90px" label-position="left" size="small">
+          <el-form-item label="服务地址">
+            <el-input v-model="mediaEnhancementDraft.baseUrl" placeholder="https://video.zi-quan.com" />
+          </el-form-item>
+          <el-form-item label="访问密码">
+            <el-input v-model="mediaEnhancementDraft.password" type="password" show-password placeholder="MyVideo ACCESS_PASSWORD" />
+          </el-form-item>
+          <div class="media-enhancement-dialog-note">播放器通过 MyVideo 的 /api/danmaku/resolve 与 /api/subtitles/resolve 使用现有多源匹配、缓存和字幕语言策略。密码仅保存在本机设置数据库。</div>
+        </el-form>
+        <span slot="footer" class="dialog-footer">
+          <el-button @click="closeDialog">取消</el-button>
+          <el-button type="danger" @click="resetMediaEnhancementService">重置</el-button>
+          <el-button type="primary" @click="saveMediaEnhancementService">确定</el-button>
         </span>
       </el-dialog>
     </div>
@@ -226,6 +257,7 @@ import { shell, clipboard, ipcRenderer } from 'electron'
 const remote = require('@electron/remote')
 import db from '../lib/dexie/dexie'
 import zy from '../lib/site/tools'
+const { normalizeMediaEnhancementConfig } = require('../lib/player/media-enhancement')
 export default {
   name: 'setting',
   data () {
@@ -241,9 +273,10 @@ export default {
         proxy: false,
         proxyDialog: false,
         configDefaultParseUrlDialog: false,
-        configSitesDataUrlDialog: false
+        configSitesDataUrlDialog: false,
+        mediaEnhancementDialog: false
       },
-      d: { },
+      d: { mediaEnhancement: normalizeMediaEnhancementConfig() },
       latestVersion: pkg.version,
       inputPassword: '',
       action: '',
@@ -253,6 +286,7 @@ export default {
         url: '',
         port: ''
       },
+      mediaEnhancementDraft: normalizeMediaEnhancementConfig(),
       update: {
         find: false,
         version: '',
@@ -287,7 +321,11 @@ export default {
       shell.openExternal(e)
     },
     getSetting () {
-      setting.find().then(res => {
+      setting.find().then(async res => {
+        res = res || { id: 0 }
+        // Normalize for the current UI/store only. Startup must stay read-only so it
+        // cannot overwrite a concurrent settings update with a stale snapshot.
+        res.mediaEnhancement = normalizeMediaEnhancementConfig(res.mediaEnhancement)
         this.d = res
         this.setting = this.d
         if (!this.setting.defaultParseURL) this.configDefaultParseURL()
@@ -367,11 +405,38 @@ export default {
         this.view = 'EditSites'
       }
     },
+    openMediaEnhancementDialog () {
+      this.mediaEnhancementDraft = normalizeMediaEnhancementConfig(this.d.mediaEnhancement)
+      this.show.mediaEnhancementDialog = true
+    },
+    async saveMediaEnhancementQuick () {
+      this.d.mediaEnhancement = normalizeMediaEnhancementConfig(this.d.mediaEnhancement)
+      await this.updateSettingEvent()
+    },
+    async saveMediaEnhancementService () {
+      const normalized = normalizeMediaEnhancementConfig({
+        ...this.d.mediaEnhancement,
+        baseUrl: this.mediaEnhancementDraft.baseUrl,
+        password: this.mediaEnhancementDraft.password
+      })
+      this.d.mediaEnhancement = normalized
+      await this.updateSettingEvent()
+      this.show.mediaEnhancementDialog = false
+      this.$message.success('字幕/弹幕服务设置已保存')
+    },
+    resetMediaEnhancementService () {
+      this.mediaEnhancementDraft = normalizeMediaEnhancementConfig({
+        ...this.d.mediaEnhancement,
+        baseUrl: 'https://video.zi-quan.com',
+        password: ''
+      })
+    },
     async closeDialog () {
       this.show.checkPasswordDialog = false
       this.show.changePasswordDialog = false
       this.show.configDefaultParseUrlDialog = false
       this.show.configSitesDataUrlDialog = false
+      this.show.mediaEnhancementDialog = false
       if (this.show.proxyDialog) {
         this.show.proxyDialog = false
         this.proxy = { ...(this.d.proxy || { type: 'none', scheme: '', url: '', port: '' }) }
@@ -578,6 +643,28 @@ export default {
       font-size: 14px;
       cursor: pointer;
     }
+  }
+  .media-enhancement-settings{
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    .zy-input{
+      display: flex;
+      gap: 16px;
+      align-items: center;
+    }
+    .media-enhancement-note{
+      width: 100%;
+      margin-top: 4px;
+      font-size: 12px;
+      opacity: .68;
+    }
+  }
+  .media-enhancement-dialog-note{
+    font-size: 12px;
+    line-height: 1.6;
+    opacity: .68;
   }
   .site{
     width: 100%;

@@ -85,6 +85,12 @@
             <circle cx="12" cy="12" r="10"></circle>
           </svg>
         </span>
+        <span class="media-feature-toggle" v-if="right.list.length > 0 && !onlineUrl" :class="{active: danmakuState.enabled}" :title="'弹幕：' + danmakuState.status" @click="openDanmakuPanel">
+          弹幕<span v-if="danmakuState.count">·{{danmakuState.count}}</span>
+        </span>
+        <span class="media-feature-toggle" v-if="right.list.length > 0 && !onlineUrl" :class="{active: subtitleState.enabled}" :title="subtitleState.status" @click="openSubtitlePanel">
+          {{subtitleState.enabled ? '字幕' : '字幕关'}}
+        </span>
         <span class="timespanSwitch" v-if="right.list.length > 1 && !onlineUrl" title="跳过片头片尾，建议优先通过快捷键设置，更便捷更精准">
           <el-switch v-model="state.showTimespanSetting" active-text="手动跳略时长"></el-switch>
         </span>
@@ -117,6 +123,8 @@
           <span class="list-top-title" v-if="right.type === 'history'">历史记录</span>
           <span class="list-top-title" v-if="right.type === 'shortcut'">快捷键指南</span>
           <span class="list-top-title" v-if="right.type === 'other'">同组其他源的视频</span>
+          <span class="list-top-title" v-if="right.type === 'danmaku'">弹幕设置</span>
+          <span class="list-top-title" v-if="right.type === 'subtitles'">字幕</span>
           <span class="list-top-close zy-svg" @click="closeListEvent">
             <svg role="img" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" aria-labelledby="closeIconTitle">
               <title id="closeIconTitle">关闭</title>
@@ -142,6 +150,27 @@
             <li v-if="right.other.length === 0">无数据</li>
             <li @click="otherItemEvent(m)" v-for="(m, n) in right.other" :key="n"><span class="title">{{m.name}} - [{{m.site.name}}]</span></li>
           </ul>
+          <ul v-if="right.type === 'danmaku'" class="list-danmaku" v-clickoutside="closeListEvent">
+            <li class="media-state">{{danmakuState.status}}<span v-if="danmakuState.count"> · {{danmakuState.count}} 条</span></li>
+            <li @click="toggleDanmakuEnabled">{{danmakuState.enabled ? '关闭弹幕' : '开启弹幕'}}</li>
+            <li @click="rematchDanmaku">重新匹配弹幕</li>
+            <li @click="adjustDanmaku('opacity', -0.1)">透明度 -</li>
+            <li @click="adjustDanmaku('opacity', 0.1)">透明度 +</li>
+            <li @click="adjustDanmaku('fontSize', -2)">字号 -</li>
+            <li @click="adjustDanmaku('fontSize', 2)">字号 +</li>
+            <li @click="cycleDanmakuArea">显示区域 {{Math.round((mediaEnhancementConfig.danmaku.area || 0.62) * 100)}}%</li>
+            <li @click="adjustDanmaku('offset', -1)">时间偏移 -1s</li>
+            <li @click="adjustDanmaku('offset', 1)">时间偏移 +1s</li>
+          </ul>
+          <ul v-if="right.type === 'subtitles'" class="list-subtitles" v-clickoutside="closeListEvent">
+            <li class="media-state">{{subtitleState.status}}</li>
+            <li @click="toggleSubtitles">{{subtitleState.enabled ? '关闭字幕' : '开启并搜索字幕'}}</li>
+            <li v-if="subtitleState.enabled" @click="rematchSubtitles">重新搜索外部字幕</li>
+            <li v-for="(candidate, index) in subtitleState.candidates" :key="'subtitle-' + index" :class="{active: subtitleState.selectedIndex === index}" @click="selectSubtitle(index)">
+              <span class="title">{{candidate.label || (candidate.language === 'ja-zh' ? '日中双语' : '日本語')}} · {{subtitleProviderName(candidate.provider)}}</span>
+              <span class="media-subtitle-file">{{candidate.fileName}}</span>
+            </li>
+          </ul>
         </div>
       </div>
     </transition>
@@ -163,6 +192,9 @@ const win = remote.getCurrentWindow()
 const URL = require('url')
 const VIDEO_DETAIL_CACHE = {}
 const { choosePlaylist } = require('../lib/playback/playlist')
+const { normalizeMediaEnhancementConfig, buildMediaIdentity } = require('../lib/player/media-enhancement')
+const { DanmakuController } = require('../lib/player/danmaku-controller')
+const { SubtitleController } = require('../lib/player/subtitle-controller')
 
 const addPlayerBtn = function (event, svg, attrs) {
   const player = this
@@ -263,6 +295,13 @@ export default {
       onlineUrl: '',
       playerType: 'hls',
       exportablePlaylist: false,
+      mediaEnhancementConfig: normalizeMediaEnhancementConfig(),
+      currentMediaIdentity: null,
+      danmakuController: null,
+      subtitleController: null,
+      mediaEnhancementMountToken: 0,
+      danmakuState: { enabled: true, status: '未匹配', count: 0, settings: {} },
+      subtitleState: { enabled: false, status: '字幕已关闭', candidates: [], selectedIndex: -1 },
     }
   },
   filters: {
@@ -480,6 +519,7 @@ export default {
     },
     async getPlayer (playerType, force = false) {
       if (!force && this.playerType === playerType) return
+      this.destroyMediaEnhancements()
       if (this.playerType !== 'flv') {
         this.xg.src = '' // https://developers.google.com/web/updates/2017/06/play-request-was-interrupted#danger-zone
         this.config.url = ''
@@ -557,6 +597,7 @@ export default {
           const useDefaultParser = !configuredParser || ['default', '默认'].includes(configuredParser.toLowerCase())
           const parserBase = useDefaultParser ? String(this.setting.defaultParseURL || '').trim() : configuredParser
           if (!parserBase) throw new Error('未配置解析接口')
+          this.destroyMediaEnhancements()
           this.onlineUrl = parserBase + url
           this.videoPlaying('online')
           return
@@ -566,6 +607,7 @@ export default {
         if (!extMatch) throw new Error('无法识别媒体格式')
         this.getPlayer(extMatch[0].slice(1))
         this.xg.src = url
+        this.scheduleMediaEnhancementMount(selected)
         const key = this.video.key + '@' + this.video.info.id
         const startTime = (VIDEO_DETAIL_CACHE[key] && VIDEO_DETAIL_CACHE[key].startPosition) || 0
         this.xg.play()
@@ -968,6 +1010,169 @@ export default {
         }
       })
     },
+    mediaServiceConfig () {
+      return {
+        baseUrl: this.mediaEnhancementConfig.baseUrl,
+        password: this.mediaEnhancementConfig.password
+      }
+    },
+    async persistMediaEnhancementConfig () {
+      const normalized = normalizeMediaEnhancementConfig(this.mediaEnhancementConfig)
+      this.mediaEnhancementConfig = normalized
+      const row = await setting.find()
+      if (row) {
+        row.mediaEnhancement = normalized
+        await setting.update(row)
+      }
+    },
+    scheduleMediaEnhancementMount (selectedEntry) {
+      const token = ++this.mediaEnhancementMountToken
+      let settingsReady = false
+      const mount = async (attempt = 0) => {
+        if (token !== this.mediaEnhancementMountToken || this.onlineUrl || this.isLive) return
+        if (!settingsReady) {
+          settingsReady = true
+          try {
+            const persisted = await setting.find()
+            if (token !== this.mediaEnhancementMountToken) return
+            if (persisted && persisted.mediaEnhancement) {
+              this.mediaEnhancementConfig = normalizeMediaEnhancementConfig(persisted.mediaEnhancement)
+            }
+          } catch (error) {
+            console.warn('读取字幕/弹幕设置失败，使用当前配置:', error)
+          }
+        }
+        if (token !== this.mediaEnhancementMountToken || this.onlineUrl || this.isLive) return
+        const root = document.getElementById('xgplayer')
+        const video = root && root.querySelector('video')
+        if (!root || !video) {
+          if (attempt < 20) setTimeout(() => mount(attempt + 1), 50)
+          return
+        }
+        this.mountMediaEnhancements(video, root, selectedEntry)
+      }
+      this.$nextTick(() => mount())
+    },
+    mountMediaEnhancements (videoElement, root, selectedEntry) {
+      const cacheKey = this.video.key + '@' + this.video.info.id
+      const detail = this.DetailCache[cacheKey] || {}
+      const media = buildMediaIdentity({
+        videoInfo: this.video.info,
+        detail,
+        playlist: this.right.list,
+        selectedEntry,
+        name: this.name
+      })
+      this.currentMediaIdentity = media
+
+      if (!this.danmakuController || this.danmakuController.video !== videoElement) {
+        if (this.danmakuController) this.danmakuController.destroy()
+        this.danmakuController = new DanmakuController({
+          video: videoElement,
+          host: root,
+          request: payload => ipcRenderer.invoke('media-enhancement:danmaku-resolve', payload),
+          settings: { ...this.mediaEnhancementConfig.danmaku, enabled: this.mediaEnhancementConfig.danmakuEnabled },
+          onState: state => { this.danmakuState = { ...state } }
+        })
+      } else {
+        this.danmakuController.updateSettings({ ...this.mediaEnhancementConfig.danmaku, enabled: this.mediaEnhancementConfig.danmakuEnabled })
+      }
+
+      if (!this.subtitleController || this.subtitleController.video !== videoElement) {
+        if (this.subtitleController) this.subtitleController.destroy()
+        this.subtitleController = new SubtitleController({
+          video: videoElement,
+          resolveRequest: payload => ipcRenderer.invoke('media-enhancement:subtitle-resolve', payload),
+          fetchRequest: payload => ipcRenderer.invoke('media-enhancement:subtitle-fetch', payload),
+          onState: state => { this.subtitleState = { ...state } }
+        })
+      }
+
+      if (this.mediaEnhancementConfig.danmakuEnabled) {
+        this.danmakuController.setMedia(media, this.mediaServiceConfig(), false)
+      } else {
+        this.danmakuController.clear()
+        this.danmakuController.setEnabled(false)
+      }
+      this.subtitleController.beginMedia(media, this.mediaServiceConfig(), false)
+    },
+    destroyMediaEnhancements () {
+      this.mediaEnhancementMountToken += 1
+      if (this.danmakuController) this.danmakuController.destroy()
+      if (this.subtitleController) this.subtitleController.destroy()
+      this.danmakuController = null
+      this.subtitleController = null
+      this.currentMediaIdentity = null
+      this.danmakuState = { enabled: this.mediaEnhancementConfig.danmakuEnabled, status: '未匹配', count: 0, settings: {} }
+      this.subtitleState = { enabled: false, status: '字幕已关闭', candidates: [], selectedIndex: -1 }
+    },
+    openDanmakuPanel () {
+      this.right.show = true
+      this.right.type = 'danmaku'
+    },
+    async toggleDanmakuEnabled () {
+      this.mediaEnhancementConfig.danmakuEnabled = !this.mediaEnhancementConfig.danmakuEnabled
+      await this.persistMediaEnhancementConfig()
+      if (!this.danmakuController) return
+      this.danmakuController.setEnabled(this.mediaEnhancementConfig.danmakuEnabled)
+      if (this.mediaEnhancementConfig.danmakuEnabled && this.currentMediaIdentity) {
+        this.danmakuController.setMedia(this.currentMediaIdentity, this.mediaServiceConfig(), false)
+      }
+    },
+    async rematchDanmaku () {
+      if (!this.danmakuController || !this.currentMediaIdentity) return
+      if (!this.mediaEnhancementConfig.danmakuEnabled) {
+        this.mediaEnhancementConfig.danmakuEnabled = true
+        await this.persistMediaEnhancementConfig()
+        this.danmakuController.setEnabled(true)
+      }
+      this.danmakuController.setMedia(this.currentMediaIdentity, this.mediaServiceConfig(), true)
+    },
+    async adjustDanmaku (key, delta) {
+      const current = Number(this.mediaEnhancementConfig.danmaku[key] || 0)
+      const ranges = {
+        opacity: [0.2, 1],
+        fontSize: [16, 42],
+        speed: [80, 280],
+        offset: [-120, 120]
+      }
+      const range = ranges[key] || [-999, 999]
+      const value = Math.max(range[0], Math.min(range[1], current + Number(delta || 0)))
+      this.mediaEnhancementConfig.danmaku[key] = key === 'opacity' ? Math.round(value * 10) / 10 : value
+      await this.persistMediaEnhancementConfig()
+      if (this.danmakuController) this.danmakuController.updateSettings(this.mediaEnhancementConfig.danmaku)
+    },
+    async cycleDanmakuArea () {
+      const values = [0.35, 0.62, 0.82, 1]
+      const current = Number(this.mediaEnhancementConfig.danmaku.area || 0.62)
+      let index = values.findIndex(value => Math.abs(value - current) < 0.02)
+      index = (index + 1 + values.length) % values.length
+      this.mediaEnhancementConfig.danmaku.area = values[index]
+      await this.persistMediaEnhancementConfig()
+      if (this.danmakuController) this.danmakuController.updateSettings(this.mediaEnhancementConfig.danmaku)
+    },
+    openSubtitlePanel () {
+      this.right.show = true
+      this.right.type = 'subtitles'
+    },
+    toggleSubtitles () {
+      if (!this.subtitleController) return
+      const enabled = !this.subtitleState.enabled
+      if (enabled) this.subtitleController.enable()
+      else this.subtitleController.disable()
+    },
+    async rematchSubtitles () {
+      if (!this.subtitleController) return
+      if (!this.subtitleState.enabled) this.subtitleController.enable(false)
+      await this.subtitleController.resolve(true)
+    },
+    selectSubtitle (index) {
+      if (this.subtitleController) this.subtitleController.select(index)
+    },
+    subtitleProviderName (provider) {
+      const names = { jimaku: 'Jimaku', assrt: 'ASSRT', opensubtitles: 'OpenSubtitles', subdl: 'SubDL' }
+      return names[provider] || provider || '字幕源'
+    },
     otherEvent (m) {
       if (!this.video.iptv) {
         this.right.type = 'other'
@@ -1164,6 +1369,12 @@ export default {
     },
     changeSetting () {
       this.mtEvent()
+      if (this.setting && this.setting.mediaEnhancement) {
+        this.mediaEnhancementConfig = normalizeMediaEnhancementConfig(this.setting.mediaEnhancement)
+        if (this.danmakuController) {
+          this.danmakuController.updateSettings({ ...this.mediaEnhancementConfig.danmaku, enabled: this.mediaEnhancementConfig.danmakuEnabled })
+        }
+      }
     },
     toggleList () {
       if (this.state.showList) {
@@ -1399,6 +1610,7 @@ export default {
       })
     },
     videoStop () {
+      this.destroyMediaEnhancements()
       if (this.xg.fullscreen) {
         this.xg.exitFullscreen()
       }
@@ -1476,6 +1688,7 @@ export default {
   },
   async mounted () {
     const db = await setting.find()
+    this.mediaEnhancementConfig = normalizeMediaEnhancementConfig(db && db.mediaEnhancement)
     this.playerInstall()
     this.config.volume = db.volume ? db.volume : 0.6
     this.xg = new HlsJsPlayer(this.config)
@@ -1484,10 +1697,55 @@ export default {
   },
   beforeDestroy () {
     clearInterval(this.timer)
+    this.destroyMediaEnhancements()
   }
 }
 </script>
 <style>
+.zy-danmaku-canvas {
+  position: absolute;
+  pointer-events: none;
+  z-index: 7;
+  overflow: hidden;
+}
+.media-feature-toggle {
+  min-width: 42px;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid rgba(127,127,127,.28);
+  border-radius: 14px;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+.media-feature-toggle.active {
+  color: #409eff;
+  border-color: rgba(64,158,255,.55);
+}
+.list-danmaku .media-state,
+.list-subtitles .media-state {
+  cursor: default !important;
+  opacity: .7;
+}
+.list-subtitles li {
+  height: auto !important;
+  min-height: 36px;
+  align-items: flex-start !important;
+  flex-direction: column;
+}
+.list-subtitles .media-subtitle-file {
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: .58;
+  font-size: 10px;
+  line-height: 16px;
+}
 .xgplayer-skin-default .xgplayer-live {
   width: 100px;
   position: absolute;

@@ -73,5 +73,18 @@
     "width": 1080,
     "height": 720
   },
-  "pauseWhenMinimize": false
+  "pauseWhenMinimize": false,
+  "mediaEnhancement": {
+    "baseUrl": "https://video.zi-quan.com",
+    "password": "",
+    "danmakuEnabled": true,
+    "subtitlesEnabled": false,
+    "danmaku": {
+      "opacity": 0.86,
+      "fontSize": 24,
+      "speed": 150,
+      "area": 0.62,
+      "offset": 0
+    }
+  }
 }]
