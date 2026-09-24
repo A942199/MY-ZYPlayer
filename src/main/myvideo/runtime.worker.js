@@ -175,6 +175,9 @@ class NativeHttpClient {
         res.on('end', () => {
           try {
             const decoded = decodeBody(Buffer.concat(chunks), res.headers['content-encoding'])
+            if (decoded.length > maxBytes) {
+              throw Object.assign(new Error('response too large'), { code: 'MYVIDEO_RESPONSE_TOO_LARGE' })
+            }
             const rawData = decoded.toString('utf8')
             const data = compatibleJsonData(rawData)
             const responseHeaders = compatibleResponseHeaders(res.headers)
