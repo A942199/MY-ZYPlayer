@@ -9,7 +9,7 @@ on:
       - master
 
 jobs:
-  douban-regression:
+  regression:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,6 +20,7 @@ jobs:
       # The legacy lockfile contains expired registry.npm.taobao.org tarball URLs.
       # Resolve from the canonical registry without mutating the checked-in lockfile.
       - run: npm install --ignore-scripts --package-lock=false --legacy-peer-deps --registry=https://registry.npmjs.org
+      - run: npm test
       - run: npm run test:douban
       - run: node --check src/main/douban/runtime.js && node --check tests/douban.test.js
       - run: node node_modules/electron/install.js
