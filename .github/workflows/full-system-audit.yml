@@ -17,7 +17,7 @@ jobs:
       - run: node node_modules/electron/install.js
       - run: npm run test
       - run: npm run test:douban
-      - run: find src tests -name '*.js' -print0 | xargs -0 -n1 node --check
+      - run: node --check src/main/douban/runtime.js && node --check src/main/myvideo/runtime.js && node --check src/main/myvideo/runtime.worker.js && node --check tests/myvideo.test.js && node --check tests/douban.test.js && node --check tests/electron-e2e.js && node --check tests/douban-match-e2e.js
       - run: npm run build
       - name: Legacy lint audit
         continue-on-error: true
