@@ -233,7 +233,11 @@ class RuntimeManager {
   }
 
   key (source) {
-    return String(source.key || source.api || source.ext)
+    const identity = String(source.key || source.api || source.ext || '')
+    const config = source.config && typeof source.config === 'object'
+      ? JSON.stringify(source.config)
+      : String(source.config || '')
+    return [identity, String(source.ext || ''), String(source.network || 'native'), config].join('\u001f')
   }
 
   async runtimeFor (source) {
