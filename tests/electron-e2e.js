@@ -484,7 +484,7 @@ async function main () {
     assert.strictEqual(enhancementState.toggles, 2, 'Subtitle/danmaku player controls were not rendered')
     assert.strictEqual(enhancementState.canvas, true, 'Danmaku canvas was not attached to the player')
     assert.strictEqual(enhancementState.danmaku.enabled, true, 'Danmaku should be enabled by default')
-    assert.strictEqual(enhancementState.danmaku.count, 2, 'Danmaku comments were not loaded')
+    assert.strictEqual(enhancementState.danmaku.count, 2, 'Danmaku comments were not loaded: ' + JSON.stringify({ enhancementState, stats: server.e2eStats }))
     assert.strictEqual(server.e2eStats.danmakuRequests > 0, true, 'Danmaku resolve endpoint was not called')
     assert.strictEqual(server.e2eStats.subtitleResolveRequests, 0, 'Subtitles must not request data while default-off')
 
