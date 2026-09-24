@@ -152,6 +152,11 @@ class SourceWorker {
         code,
         modulePath: options.modulePath || getModulePath(),
         allowDynamicCode: allowDynamicCode(source)
+      },
+      resourceLimits: {
+        maxOldGenerationSizeMb: 96,
+        maxYoungGenerationSizeMb: 24,
+        codeRangeSizeMb: 16
       }
     })
     this.worker.on('message', message => this.onMessage(message))
