@@ -4,7 +4,6 @@ const http = require('http')
 const https = require('https')
 const zlib = require('zlib')
 const crypto = require('crypto')
-const AdmZip = require('adm-zip')
 
 const MAX_JSON_BYTES = 8 * 1024 * 1024
 const MAX_SUBTITLE_BYTES = 3 * 1024 * 1024
@@ -557,24 +556,85 @@ function assToVtt (text) {
   return lines.join('\n')
 }
 
+function zipEntries (source) {
+  const eocdSignature = 0x06054b50
+  const centralSignature = 0x02014b50
+  const localSignature = 0x04034b50
+  const minEocd = 22
+  const searchStart = Math.max(0, source.length - 0xffff - minEocd)
+  let eocd = -1
+  for (let offset = source.length - minEocd; offset >= searchStart; offset--) {
+    if (source.readUInt32LE(offset) === eocdSignature) {
+      eocd = offset
+      break
+    }
+  }
+  if (eocd < 0) throw new Error('字幕 ZIP 结构无效')
+  const count = source.readUInt16LE(eocd + 10)
+  const centralSize = source.readUInt32LE(eocd + 12)
+  const centralOffset = source.readUInt32LE(eocd + 16)
+  if (count > 256 || centralOffset + centralSize > source.length) throw new Error('字幕 ZIP 目录异常')
+
+  const rows = []
+  let offset = centralOffset
+  for (let index = 0; index < count; index++) {
+    if (offset + 46 > source.length || source.readUInt32LE(offset) !== centralSignature) throw new Error('字幕 ZIP 目录损坏')
+    const method = source.readUInt16LE(offset + 10)
+    const compressedSize = source.readUInt32LE(offset + 20)
+    const uncompressedSize = source.readUInt32LE(offset + 24)
+    const nameLength = source.readUInt16LE(offset + 28)
+    const extraLength = source.readUInt16LE(offset + 30)
+    const commentLength = source.readUInt16LE(offset + 32)
+    const localOffset = source.readUInt32LE(offset + 42)
+    const nextOffset = offset + 46 + nameLength + extraLength + commentLength
+    if (nextOffset > source.length || uncompressedSize > MAX_SUBTITLE_BYTES || compressedSize > MAX_SUBTITLE_BYTES) {
+      offset = nextOffset
+      continue
+    }
+    const name = source.slice(offset + 46, offset + 46 + nameLength).toString('utf8')
+    if (!/\.(?:vtt|srt|ass|ssa)$/i.test(name) || /[\\/]$/.test(name)) {
+      offset = nextOffset
+      continue
+    }
+    if (localOffset + 30 > source.length || source.readUInt32LE(localOffset) !== localSignature) {
+      offset = nextOffset
+      continue
+    }
+    const localNameLength = source.readUInt16LE(localOffset + 26)
+    const localExtraLength = source.readUInt16LE(localOffset + 28)
+    const dataStart = localOffset + 30 + localNameLength + localExtraLength
+    const dataEnd = dataStart + compressedSize
+    if (dataEnd > source.length) {
+      offset = nextOffset
+      continue
+    }
+    const compressed = source.slice(dataStart, dataEnd)
+    let data
+    if (method === 0) data = compressed
+    else if (method === 8) data = zlib.inflateRawSync(compressed, { maxOutputLength: MAX_SUBTITLE_BYTES })
+    else {
+      offset = nextOffset
+      continue
+    }
+    if (data.length <= MAX_SUBTITLE_BYTES) rows.push({ name, data })
+    offset = nextOffset
+  }
+  return rows
+}
+
 function subtitlePayload (buffer, fileName) {
   const source = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer || '')
-  if (source.length >= 4 && source[0] === 0x50 && source[1] === 0x4b) {
-    const zip = new AdmZip(source)
+  if (source.length >= 4 && source.readUInt32LE(0) === 0x04034b50) {
     const expected = String(fileName || '').split(/[\\/]/).pop().toLowerCase()
-    const entries = zip.getEntries()
-      .filter(entry => !entry.isDirectory && /\.(?:vtt|srt|ass|ssa)$/i.test(entry.entryName) && Number(entry.header && entry.header.size || 0) <= MAX_SUBTITLE_BYTES)
-      .sort((a, b) => {
-        const an = a.entryName.split(/[\\/]/).pop().toLowerCase()
-        const bn = b.entryName.split(/[\\/]/).pop().toLowerCase()
-        const as = an === expected ? 100 : (classifySubtitleLanguage('', an) ? 10 : 0)
-        const bs = bn === expected ? 100 : (classifySubtitleLanguage('', bn) ? 10 : 0)
-        return bs - as
-      })
+    const entries = zipEntries(source).sort((a, b) => {
+      const an = a.name.split(/[\\/]/).pop().toLowerCase()
+      const bn = b.name.split(/[\\/]/).pop().toLowerCase()
+      const as = an === expected ? 100 : (classifySubtitleLanguage('', an) ? 10 : 0)
+      const bs = bn === expected ? 100 : (classifySubtitleLanguage('', bn) ? 10 : 0)
+      return bs - as
+    })
     if (!entries.length) throw new Error('字幕压缩包没有可用字幕文件')
-    const extracted = entries[0].getData()
-    if (extracted.length > MAX_SUBTITLE_BYTES) throw new Error('解压后的字幕文件过大')
-    return { buffer: extracted, fileName: entries[0].entryName }
+    return { buffer: entries[0].data, fileName: entries[0].name }
   }
   return { buffer: source, fileName }
 }
