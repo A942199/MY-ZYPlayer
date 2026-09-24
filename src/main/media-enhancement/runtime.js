@@ -4,6 +4,7 @@ const http = require('http')
 const https = require('https')
 const zlib = require('zlib')
 const crypto = require('crypto')
+const AdmZip = require('adm-zip')
 
 const MAX_JSON_BYTES = 8 * 1024 * 1024
 const MAX_SUBTITLE_BYTES = 3 * 1024 * 1024
@@ -554,9 +555,32 @@ function assToVtt (text) {
   return lines.join('\n')
 }
 
+function subtitlePayload (buffer, fileName) {
+  const source = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer || '')
+  if (source.length >= 4 && source[0] === 0x50 && source[1] === 0x4b) {
+    const zip = new AdmZip(source)
+    const expected = String(fileName || '').split(/[\\/]/).pop().toLowerCase()
+    const entries = zip.getEntries()
+      .filter(entry => !entry.isDirectory && /\.(?:vtt|srt|ass|ssa)$/i.test(entry.entryName) && Number(entry.header && entry.header.size || 0) <= MAX_SUBTITLE_BYTES)
+      .sort((a, b) => {
+        const an = a.entryName.split(/[\\/]/).pop().toLowerCase()
+        const bn = b.entryName.split(/[\\/]/).pop().toLowerCase()
+        const as = an === expected ? 100 : (classifySubtitleLanguage('', an) ? 10 : 0)
+        const bs = bn === expected ? 100 : (classifySubtitleLanguage('', bn) ? 10 : 0)
+        return bs - as
+      })
+    if (!entries.length) throw new Error('字幕压缩包没有可用字幕文件')
+    const extracted = entries[0].getData()
+    if (extracted.length > MAX_SUBTITLE_BYTES) throw new Error('解压后的字幕文件过大')
+    return { buffer: extracted, fileName: entries[0].entryName }
+  }
+  return { buffer: source, fileName }
+}
+
 function toVtt (buffer, fileName, contentType) {
-  const text = buffer.toString('utf8').replace(/^\uFEFF/, '')
-  const lower = String(fileName || '').toLowerCase()
+  const payload = subtitlePayload(buffer, fileName)
+  const text = payload.buffer.toString('utf8').replace(/^\uFEFF/, '')
+  const lower = String(payload.fileName || '').toLowerCase()
   if (text.startsWith('WEBVTT')) return text
   if (lower.endsWith('.ass') || lower.endsWith('.ssa') || /^\[Script Info\]/i.test(text)) return assToVtt(text)
   if (lower.endsWith('.srt') || /\d{2}:\d{2}:\d{2},\d{3}\s*-->/.test(text)) return srtToVtt(text)
@@ -599,7 +623,12 @@ async function downloadCandidate (candidate, config) {
     downloadUrl = url.toString()
   }
   const host = new URL(downloadUrl).hostname
-  return requestBuffer(downloadUrl, { headers: candidate.headers, maxBytes: MAX_SUBTITLE_BYTES, allowedHosts: [host], timeout: 5000 })
+  let headers = candidate.headers || {}
+  if (candidate.provider === 'jimaku') {
+    const apiHost = new URL(config.subtitles.jimakuBaseUrl).hostname
+    if (host !== apiHost && !host.endsWith('.' + apiHost)) headers = {}
+  }
+  return requestBuffer(downloadUrl, { headers, maxBytes: MAX_SUBTITLE_BYTES, allowedHosts: [host], timeout: 5000 })
 }
 
 async function fetchSubtitle (payload = {}) {
