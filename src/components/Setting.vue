@@ -374,10 +374,7 @@ export default {
       this.show.configSitesDataUrlDialog = false
       if (this.show.proxyDialog) {
         this.show.proxyDialog = false
-        this.setting.proxy.type = 'none'
-        await this.updateSettingEvent()
-        this.$message.info('取消使用代理')
-        zy.proxy()
+        this.proxy = { ...(this.d.proxy || { type: 'none', scheme: '', url: '', port: '' }) }
       }
       this.inputPassword = ''
     },
@@ -424,19 +421,21 @@ export default {
       this.$message.success('已复制到剪贴板')
     },
     impShortcut () {
-      const str = clipboard.readText()
-      const json = JSON.parse(str)
-      shortcut.clear().then(res => {
-        this.$message.info('已清空原数据')
-        shortcut.add(json).then(e => {
-          this.$message.success('已添加成功')
+      try {
+        const str = clipboard.readText()
+        const json = JSON.parse(str)
+        const rows = Array.isArray(json) ? json : [json]
+        shortcut.clear().then(() => shortcut.bulkAdd ? shortcut.bulkAdd(rows) : Promise.all(rows.map(item => shortcut.add(item)))).then(() => {
+          this.$message.success('快捷键已导入')
           this.getShortcut()
           this.d.shortcutModified = true
           this.updateSettingEvent()
-        })
-      })
+        }).catch(error => this.$message.error('快捷键导入失败：' + error.message))
+      } catch (error) {
+        this.$message.error('剪贴板内容不是有效的快捷键 JSON：' + error.message)
+      }
     },
-    resetShortcut () {
+    resetShortcut () {    resetShortcut () {
       shortcut.clear().then(shortcut.add(defaultShortcuts)).then(res => {
         this.getShortcut()
         this.$message.success('快捷键已重置')
@@ -445,27 +444,39 @@ export default {
       })
     },
     async changeProxyType (e) {
-      this.d.proxy.type = e
-      if (e === 'manual') {
-        this.show.proxyDialog = true
-        this.proxy.scheme = this.setting.proxy.scheme
-        this.proxy.url = this.setting.proxy.url
-        this.proxy.port = this.setting.proxy.port
-      }
-      await this.updateSettingEvent()
       this.show.proxy = false
+      if (e === 'manual') {
+        this.proxy = {
+          type: 'manual',
+          scheme: this.d.proxy && this.d.proxy.scheme ? this.d.proxy.scheme : 'http',
+          url: this.d.proxy && this.d.proxy.url ? this.d.proxy.url : '',
+          port: this.d.proxy && this.d.proxy.port ? this.d.proxy.port : ''
+        }
+        this.show.proxyDialog = true
+        return
+      }
+
+      this.d.proxy = { ...(this.d.proxy || {}), type: e }
+      await this.updateSettingEvent()
       zy.proxy()
     },
     async proxyConfirm () {
-      this.d.proxy.scheme = this.proxy.scheme
-      this.d.proxy.url = this.proxy.url
-      this.d.proxy.port = this.proxy.port
+      if (!this.proxy.scheme || !this.proxy.url || !this.proxy.port) {
+        this.$message.error('请完整填写代理协议、地址和端口')
+        return
+      }
+      this.d.proxy = {
+        type: 'manual',
+        scheme: this.proxy.scheme,
+        url: this.proxy.url.trim(),
+        port: String(this.proxy.port).trim()
+      }
       await this.updateSettingEvent()
       this.show.proxyDialog = false
       zy.proxy()
       this.$message.info('开始使用代理')
     },
-    clearDBEvent () {
+    clearDBEvent () {    clearDBEvent () {
       if (this.d.password) {
         this.action = 'CleanDB'
         this.show.checkPasswordDialog = true
