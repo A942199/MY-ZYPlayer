@@ -16,7 +16,6 @@ registerDoubanIpc(ipcMain)
 // const log = require('electron-log') // 用于调试主程序
 
 app.commandLine.appendSwitch('disable-features', 'OutOfBlinkCors') // 允许跨域
-app.commandLine.appendSwitch('--ignore-certificate-errors', 'true') // 忽略证书相关错误
 
 let win
 
@@ -56,6 +55,8 @@ function createWindow () {
       enableRemoteModule: true,
       nodeIntegration: true,
       contextIsolation: false,
+      nodeIntegrationInSubFrames: false,
+      webviewTag: false,
       allowRunningInsecureContent: false
     }
   })
@@ -74,6 +75,20 @@ function createWindow () {
     urls: ['http://*/*', 'https://*/*']
   }
   require("@electron/remote/main").enable(win.webContents)
+
+  // Keep remote content from replacing the privileged application document.
+  win.webContents.on('will-navigate', (event, targetUrl) => {
+    let allowed = false
+    try {
+      if (process.env.WEBPACK_DEV_SERVER_URL) {
+        allowed = new URL(targetUrl).origin === new URL(process.env.WEBPACK_DEV_SERVER_URL).origin
+      } else {
+        allowed = targetUrl.startsWith('app://')
+      }
+    } catch (error) {}
+    if (!allowed) event.preventDefault()
+  })
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   win.webContents.session.webRequest.onBeforeSendHeaders(filter, (details, callback) => {
     const url = new URL(details.url)
     details.requestHeaders.Origin = url.origin
