@@ -6,6 +6,7 @@ const { URL } = require('url')
 
 const DEFAULT_TIMEOUT = 20000
 const CALL_TIMEOUT = 30000
+const MAX_RESPONSE_BYTES = 12 * 1024 * 1024
 const DYNAMIC_CODE_FILES = new Set(['7sefun.js', 'novipnoad.js', 'saohuo.js'])
 const playbackHeaders = new Map()
 
@@ -53,6 +54,8 @@ class NativeHttpClient {
       headers,
       timeout: Number(options.timeout) || DEFAULT_TIMEOUT,
       maxRedirects: options.maxRedirects === undefined ? 8 : options.maxRedirects,
+      maxContentLength: Number(options.maxBytes) || MAX_RESPONSE_BYTES,
+      maxBodyLength: Number(options.maxBytes) || MAX_RESPONSE_BYTES,
       responseType: options.responseType || 'text',
       transformResponse: [data => data],
       validateStatus: () => true
