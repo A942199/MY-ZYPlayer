@@ -26,7 +26,7 @@ jobs:
           cache: npm
       - run: npm install --package-lock=false --legacy-peer-deps --registry=https://registry.npmjs.org
         shell: pwsh
-      - run: npm run electron:build -- --win --x64
+      - run: npm run electron:build -- --win --x64 --publish never
         shell: pwsh
       - name: Show packaged files
         run: Get-ChildItem -Recurse dist_electron | Select-Object FullName, Length
