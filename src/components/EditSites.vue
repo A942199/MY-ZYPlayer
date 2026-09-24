@@ -445,7 +445,8 @@ export default {
         download: this.siteInfo.download,
         jiexiUrl: this.siteInfo.jiexiUrl,
         group: this.siteInfo.group,
-        isActive: this.siteInfo.isActive
+        isActive: this.siteInfo.isActive,
+        reverseOrder: Boolean(this.siteInfo.reverseOrder)
       }
       if (this.dialogType === 'edit') doc.id = this.siteInfo.id
       if (!this.isMyVideoSite(this.siteInfo)) {
