@@ -620,7 +620,7 @@ export default {
       })
       return detail.fullList
     },
-    async videoPlaying (isOnline) {    async videoPlaying (isOnline) {
+    async videoPlaying (isOnline) {
       const db = await history.find({ site: this.video.key, ids: this.video.info.id })
       const videoFlag = this.video.info.videoFlag || ''
       let time = this.xg.currentTime || 0
