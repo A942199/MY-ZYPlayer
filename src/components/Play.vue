@@ -1163,7 +1163,7 @@ export default {
     },
     async rematchSubtitles () {
       if (!this.subtitleController) return
-      if (!this.subtitleState.enabled) this.subtitleController.enable()
+      if (!this.subtitleState.enabled) this.subtitleController.enable(false)
       await this.subtitleController.resolve(true)
     },
     selectSubtitle (index) {
