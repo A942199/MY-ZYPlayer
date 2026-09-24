@@ -49,7 +49,16 @@ const KANA = {
   た:'ta',ち:'chi',つ:'tsu',て:'te',と:'to',な:'na',に:'ni',ぬ:'nu',ね:'ne',の:'no',は:'ha',ひ:'hi',ふ:'fu',へ:'he',ほ:'ho',
   ま:'ma',み:'mi',む:'mu',め:'me',も:'mo',や:'ya',ゆ:'yu',よ:'yo',ら:'ra',り:'ri',る:'ru',れ:'re',ろ:'ro',わ:'wa',を:'wo',ん:'n',
   が:'ga',ぎ:'gi',ぐ:'gu',げ:'ge',ご:'go',ざ:'za',じ:'ji',ず:'zu',ぜ:'ze',ぞ:'zo',だ:'da',ぢ:'ji',づ:'zu',で:'de',ど:'do',
-  ば:'ba',び:'bi',ぶ:'bu',べ:'be',ぼ:'bo',ぱ:'pa',ぴ:'pi',ぷ:'pu',ぺ:'pe',ぽ:'po'
+  ば:'ba',び:'bi',ぶ:'bu',べ:'be',ぼ:'bo',ぱ:'pa',ぴ:'pi',ぷ:'pu',ぺ:'pe',ぽ:'po',ゔ:'vu',
+  ぁ:'a',ぃ:'i',ぅ:'u',ぇ:'e',ぉ:'o',ゃ:'ya',ゅ:'yu',ょ:'yo'
+}
+const KANA_COMBO = {
+  きゃ:'kya',きゅ:'kyu',きょ:'kyo',ぎゃ:'gya',ぎゅ:'gyu',ぎょ:'gyo',しゃ:'sha',しゅ:'shu',しょ:'sho',
+  じゃ:'ja',じゅ:'ju',じょ:'jo',ちゃ:'cha',ちゅ:'chu',ちょ:'cho',にゃ:'nya',にゅ:'nyu',にょ:'nyo',
+  ひゃ:'hya',ひゅ:'hyu',ひょ:'hyo',びゃ:'bya',びゅ:'byu',びょ:'byo',ぴゃ:'pya',ぴゅ:'pyu',ぴょ:'pyo',
+  みゃ:'mya',みゅ:'myu',みょ:'myo',りゃ:'rya',りゅ:'ryu',りょ:'ryo',ふぁ:'fa',ふぃ:'fi',ふぇ:'fe',ふぉ:'fo',
+  てぃ:'ti',でぃ:'di',とぅ:'tu',どぅ:'du',しぇ:'she',じぇ:'je',ちぇ:'che',うぃ:'wi',うぇ:'we',うぉ:'wo',
+  ゔぁ:'va',ゔぃ:'vi',ゔぇ:'ve',ゔぉ:'vo'
 }
 
 function romanizeKanaTitle (value) {
@@ -70,8 +79,14 @@ function romanizeKanaTitle (value) {
       geminate = false
       continue
     }
-    let roma = KANA[ch] || ''
-    if (!roma) continue
+    const pair = source.slice(i, i + 2)
+    let roma = KANA_COMBO[pair]
+    if (roma) i += 1
+    else roma = KANA[ch] || ''
+    if (!roma) {
+      geminate = false
+      continue
+    }
     if (geminate) {
       const consonant = roma.match(/^(ch|sh|ts|[bcdfghjkmprstvwz])/i)
       if (consonant) out += consonant[0] === 'ch' ? 't' : consonant[0][0]
