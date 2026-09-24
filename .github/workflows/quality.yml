@@ -1,0 +1,22 @@
+name: quality
+
+on:
+  pull_request:
+    branches:
+      - master
+  push:
+    branches:
+      - master
+
+jobs:
+  douban-regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '16'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run test:douban
+      - run: npx eslint src/main/douban/runtime.js src/components/Douban.vue tests/douban.test.js
