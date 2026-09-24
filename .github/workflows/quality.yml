@@ -17,6 +17,8 @@ jobs:
         with:
           node-version: '16'
           cache: npm
-      - run: npm ci --ignore-scripts
+      # The legacy lockfile contains expired registry.npm.taobao.org tarball URLs.
+      # Resolve from the canonical registry without mutating the checked-in lockfile.
+      - run: npm install --ignore-scripts --package-lock=false --legacy-peer-deps --registry=https://registry.npmjs.org
       - run: npm run test:douban
       - run: npx eslint src/main/douban/runtime.js src/components/Douban.vue tests/douban.test.js
