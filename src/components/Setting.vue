@@ -82,9 +82,9 @@
             <span>字幕默认关闭（播放时手动开启）</span>
           </div>
           <div class="zy-select">
-            <div class="vs-placeholder vs-noAfter" @click="openMediaEnhancementDialog">MyVideo 服务设置</div>
+            <div class="vs-placeholder vs-noAfter" @click="openMediaEnhancementDialog">本地字幕/弹幕源设置</div>
           </div>
-          <div class="media-enhancement-note">字幕仅允许日本語 / 日中双语；字幕默认关闭时不会发送字幕请求。</div>
+          <div class="media-enhancement-note">所有匹配逻辑在本机运行，不再依赖 MyVideo/video.zi-quan.com；字幕仅允许日本語 / 日中双语，默认关闭时不会发送字幕请求。</div>
         </div>
       </div>
       <div class="site">
@@ -162,21 +162,43 @@
         </span>
       </el-dialog>
     </div>
-    <div> <!-- MyVideo 字幕/弹幕服务 -->
-      <el-dialog :visible.sync="show.mediaEnhancementDialog" v-if="show.mediaEnhancementDialog" title="MyVideo 字幕/弹幕服务" :append-to-body="true" @close="closeDialog" width="520px">
-        <el-form label-width="90px" label-position="left" size="small">
-          <el-form-item label="服务地址">
-            <el-input v-model="mediaEnhancementDraft.baseUrl" placeholder="https://video.zi-quan.com" />
+    <div> <!-- 本地字幕/弹幕 Provider -->
+      <el-dialog :visible.sync="show.mediaEnhancementDialog" v-if="show.mediaEnhancementDialog" title="本地字幕/弹幕源" :append-to-body="true" @close="closeDialog" width="650px">
+        <el-form label-width="150px" label-position="left" size="small">
+          <div class="media-enhancement-dialog-note">MY-ZYPlayer 直接从本机 Electron Main 访问第三方 Provider，不经过 MyVideo/video.zi-quan.com。密钥只保存在本机 IndexedDB。未填写的 Provider 自动跳过。</div>
+          <el-form-item label="弹弹play App ID">
+            <el-input v-model="mediaEnhancementDraft.providers.dandanplay.appId" placeholder="DANDANPLAY_APP_ID" />
           </el-form-item>
-          <el-form-item label="访问密码">
-            <el-input v-model="mediaEnhancementDraft.password" type="password" show-password placeholder="MyVideo ACCESS_PASSWORD" />
+          <el-form-item label="弹弹play Secret">
+            <el-input v-model="mediaEnhancementDraft.providers.dandanplay.appSecret" type="password" show-password placeholder="DANDANPLAY_APP_SECRET" />
           </el-form-item>
-          <div class="media-enhancement-dialog-note">播放器通过 MyVideo 的 /api/danmaku/resolve 与 /api/subtitles/resolve 使用现有多源匹配、缓存和字幕语言策略。密码仅保存在本机设置数据库。</div>
+          <el-form-item label="兼容弹幕源 URL">
+            <el-input v-model="mediaEnhancementDraft.providers.compatibleDanmaku.urls" type="textarea" :rows="2" placeholder="可选；每行一个兼容 /api/v2 的地址" />
+          </el-form-item>
+          <el-form-item label="兼容弹幕源 Token">
+            <el-input v-model="mediaEnhancementDraft.providers.compatibleDanmaku.token" type="password" show-password placeholder="可选 Bearer Token" />
+          </el-form-item>
+          <el-form-item label="Jimaku API Key">
+            <el-input v-model="mediaEnhancementDraft.providers.jimaku.apiKey" type="password" show-password />
+          </el-form-item>
+          <el-form-item label="ASSRT Token">
+            <el-input v-model="mediaEnhancementDraft.providers.assrt.token" type="password" show-password />
+          </el-form-item>
+          <el-form-item label="OpenSubtitles Key">
+            <el-input v-model="mediaEnhancementDraft.providers.opensubtitles.apiKey" type="password" show-password />
+          </el-form-item>
+          <el-form-item label="OpenSubtitles UA">
+            <el-input v-model="mediaEnhancementDraft.providers.opensubtitles.userAgent" placeholder="MY-ZYPlayer v2.9" />
+          </el-form-item>
+          <el-form-item label="SubDL API Key">
+            <el-input v-model="mediaEnhancementDraft.providers.subdl.apiKey" type="password" show-password />
+          </el-form-item>
+          <div class="media-enhancement-dialog-note">字幕 Provider 仅接受日语 / 日中双语候选；下载后还会在本机再次检查字幕内容。字幕开关关闭时不会访问任何字幕 Provider。</div>
         </el-form>
         <span slot="footer" class="dialog-footer">
           <el-button @click="closeDialog">取消</el-button>
-          <el-button type="danger" @click="resetMediaEnhancementService">重置</el-button>
-          <el-button type="primary" @click="saveMediaEnhancementService">确定</el-button>
+          <el-button type="danger" @click="resetMediaEnhancementService">清空 Provider</el-button>
+          <el-button type="primary" @click="saveMediaEnhancementService">保存到本机</el-button>
         </span>
       </el-dialog>
     </div>
@@ -414,21 +436,19 @@ export default {
       await this.updateSettingEvent()
     },
     async saveMediaEnhancementService () {
-      const normalized = normalizeMediaEnhancementConfig({
+      this.d.mediaEnhancement = normalizeMediaEnhancementConfig({
         ...this.d.mediaEnhancement,
-        baseUrl: this.mediaEnhancementDraft.baseUrl,
-        password: this.mediaEnhancementDraft.password
+        providers: this.mediaEnhancementDraft.providers
       })
-      this.d.mediaEnhancement = normalized
       await this.updateSettingEvent()
       this.show.mediaEnhancementDialog = false
-      this.$message.success('字幕/弹幕服务设置已保存')
+      this.$message.success('本地字幕/弹幕 Provider 设置已保存')
     },
     resetMediaEnhancementService () {
+      const clean = normalizeMediaEnhancementConfig()
       this.mediaEnhancementDraft = normalizeMediaEnhancementConfig({
         ...this.d.mediaEnhancement,
-        baseUrl: 'https://video.zi-quan.com',
-        password: ''
+        providers: clean.providers
       })
     },
     async closeDialog () {
