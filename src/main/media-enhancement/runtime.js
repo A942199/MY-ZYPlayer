@@ -153,10 +153,21 @@ async function resolveSubtitles (payload = {}) {
   if (!String(media.title || media.tmdbId || '').trim()) throw new Error('缺少字幕匹配信息')
   const suffix = payload.force === true ? '?force=1' : ''
   const data = await requestJson(config, '/api/subtitles/resolve' + suffix, media)
-  const candidates = Array.isArray(data.candidates)
-    ? data.candidates.filter(item => item && (item.language === 'ja' || item.language === 'ja-zh'))
-    : []
-  return { ...data, candidates }
+  const sourceCandidates = Array.isArray(data.candidates) ? data.candidates : []
+  const candidates = sourceCandidates.filter(item => item && (item.language === 'ja' || item.language === 'ja-zh'))
+  const originalAutoIndex = Number(data.autoSelectIndex)
+  let autoSelectIndex = -1
+  if (Number.isInteger(originalAutoIndex) && originalAutoIndex >= 0 && sourceCandidates[originalAutoIndex]) {
+    const selected = sourceCandidates[originalAutoIndex]
+    autoSelectIndex = candidates.findIndex(item =>
+      item === selected ||
+      (
+        String(item.provider || '') === String(selected.provider || '') &&
+        String(item.providerRef || '') === String(selected.providerRef || '')
+      )
+    )
+  }
+  return { ...data, candidates, autoSelectIndex }
 }
 
 async function fetchSubtitle (payload = {}) {
@@ -164,8 +175,12 @@ async function fetchSubtitle (payload = {}) {
   const raw = String(payload.fetchUrl || '').trim()
   if (!raw) throw new Error('字幕下载地址为空')
   const base = new URL(config.baseUrl)
-  const target = new URL(raw, base.origin)
-  if (target.origin !== base.origin || !target.pathname.includes('/api/subtitles/fetch')) {
+  const target = raw.startsWith('http://') || raw.startsWith('https://')
+    ? new URL(raw)
+    : endpointUrl(config, raw)
+  const basePath = base.pathname.replace(/\/$/, '')
+  const expectedPath = basePath + '/api/subtitles/fetch'
+  if (target.origin !== base.origin || target.pathname !== expectedPath) {
     throw new Error('字幕下载地址不可信')
   }
   const response = await requestBuffer(target.href, {
