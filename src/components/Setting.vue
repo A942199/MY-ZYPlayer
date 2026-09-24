@@ -331,7 +331,7 @@ export default {
     },
     updateSettingEvent () {
       this.setting = this.d
-      setting.update(this.d)
+      return setting.update(this.d)
     },
     toggleExcludeR18Films () {
       this.d.excludeR18Films = !this.d.excludeR18Films
