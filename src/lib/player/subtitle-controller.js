@@ -128,7 +128,7 @@ class SubtitleController {
     })
     this.urls = []
     if (!this.video) return
-    Array.from(this.video.querySelectorAll('track[data-zy-companion-subtitle]')).forEach(track => track.remove())
+    Array.from(this.video.querySelectorAll('track[data-zy-local-subtitle]')).forEach(track => track.remove())
   }
 
   beginMedia (media, config, defaultEnabled) {
@@ -223,7 +223,7 @@ class SubtitleController {
       track.label = candidate.label || (candidate.language === 'ja-zh' ? '日中双语' : '日本語')
       track.srclang = 'ja'
       track.src = url
-      track.dataset.zyCompanionSubtitle = '1'
+      track.dataset.zyLocalSubtitle = '1'
       this.video.appendChild(track)
 
       await new Promise((resolve, reject) => {
