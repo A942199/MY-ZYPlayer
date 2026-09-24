@@ -23,5 +23,5 @@ jobs:
       - run: node node_modules/electron/install.js
       - run: npm test
       - run: npm run test:douban
-      - run: node --check src/main/douban/runtime.js && node --check src/main/myvideo/runtime.js && node --check src/main/myvideo/runtime.worker.js
+      - run: node --check src/main/douban/runtime.js && node --check src/main/myvideo/runtime.js && node --check src/main/myvideo/runtime.worker.js && node --check src/main/media-enhancement/runtime.js && node --check src/lib/player/media-enhancement.js && node --check src/lib/player/danmaku-controller.js && node --check src/lib/player/subtitle-controller.js
       - run: npm run build
