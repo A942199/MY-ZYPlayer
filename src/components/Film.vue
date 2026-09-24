@@ -309,6 +309,7 @@
 import { mapMutations } from 'vuex'
 import { star, history, search, sites, setting } from '../lib/dexie'
 import zy from '../lib/site/tools'
+const myvideo = require('../lib/site/myvideo')
 import Waterfall from 'vue-waterfall-plugin'
 import InfiniteLoading from 'vue-infinite-loading'
 const { clipboard } = require('electron')
@@ -866,47 +867,60 @@ export default {
       }
       if (!wd) return
       this.searchID += 1
+      const id = this.searchID
       this.searchContents = []
       this.showFind = true
       this.statusText = ' '
       this.searchRunning = true
       this.siteSearchCount = 0
-      this.searchSites.forEach(site => {
-        const id = this.searchID
+      const targets = this.searchSites.filter(Boolean)
+      if (!targets.length) {
+        this.searchRunning = false
+        this.statusText = '暂无可用源'
+        return
+      }
+
+      const markSiteComplete = () => {
+        if (id !== this.searchID) return
+        this.siteSearchCount += 1
+        if (this.siteSearchCount >= targets.length) this.searchRunning = false
+        if (!this.searchContents.length) this.statusText = '暂无数据'
+      }
+
+      targets.forEach(site => {
         zy.search(site.key, wd).then(res => {
           if (id !== this.searchID || !this.searchRunning) return
-          const type = Object.prototype.toString.call(res)
-          if (type === '[object Array]') {
-            let count = 0
-            res.forEach(element => {
-              zy.detail(site.key, element.id).then(detailRes => {
-                if (id !== this.searchID || !this.searchRunning) return
-                detailRes.site = site
-                if (this.isValidSearchResult(detailRes)) {
-                  this.searchContents.push(detailRes)
-                  this.searchContents.sort(function (a, b) {
-                    return a.site.id - b.site.id
-                  })
-                }
-              }).finally(() => { count++; if (count === res.length) { this.siteSearchCount++; this.statusText = '暂无数据' } })
-            })
-          } else if (type === '[object Object]') {
-            zy.detail(site.key, res.id).then(detailRes => {
+          const rows = Array.isArray(res) ? res : (res && typeof res === 'object' ? [res] : [])
+          if (!rows.length) {
+            markSiteComplete()
+            if (this.searchGroup === '站内') this.$message.info('没有查询到数据！')
+            return
+          }
+
+          let completed = 0
+          const markDetailComplete = () => {
+            completed += 1
+            if (completed === rows.length) markSiteComplete()
+          }
+
+          rows.forEach(element => {
+            zy.detail(site.key, element.id).then(detailRes => {
               if (id !== this.searchID || !this.searchRunning) return
               detailRes.site = site
               if (this.isValidSearchResult(detailRes)) {
                 this.searchContents.push(detailRes)
-                this.searchContents.sort(function (a, b) {
-                  return a.site.id - b.site.id
-                })
+                this.searchContents.sort((a, b) => a.site.id - b.site.id)
               }
-            }).finally(() => { this.siteSearchCount++; this.statusText = '暂无数据' })
-          } else if (res === undefined) {
-            this.siteSearchCount++
-            this.statusText = '暂无数据'
-            if (this.searchGroup === '站内') this.$message.info('没有查询到数据！')
-          }
-        }).catch(() => { this.siteSearchCount++; if (this.searchGroup === '站内') this.$message.error('本次查询状态异常，未获取到数据！') })
+            }).catch(error => {
+              console.warn('搜索详情加载失败:', site.name, element.id, error)
+            }).finally(markDetailComplete)
+          })
+        }).catch(error => {
+          if (id !== this.searchID) return
+          console.warn('源搜索失败:', site.name, error)
+          markSiteComplete()
+          if (this.searchGroup === '站内') this.$message.error('本次查询状态异常，未获取到数据！')
+        })
       })
     },
     isValidSearchResult (detailRes) {
@@ -924,26 +938,21 @@ export default {
       }
     },
     async getDefaultSites () {
-      const s = await setting.find()
-      zy.getDefaultSites(s.sitesDataURL).then(res => {
-        if (res && typeof res === 'string') {
-          const json = JSON.parse(res)
-          sites.clear().then(sites.bulkAdd(json))
+      try {
+        const currentSetting = await setting.find()
+        const imported = await zy.getDefaultSites(currentSetting.sitesDataURL)
+        const existing = await sites.all()
+        const merged = myvideo.mergeImportedSites(existing, imported)
+        if (!merged.length) throw new Error('云端源列表为空')
+        await sites.replaceAll(merged)
+        const rows = await sites.all()
+        this.sites = rows.filter(item => item.isActive)
+        if (this.sites.length && (this.site === undefined || !this.sites.some(x => x.key === this.site.key))) {
+          await this.siteClick(this.sites[0].name, true)
         }
-        if (res && typeof res === 'object') {
-          sites.clear().then(sites.bulkAdd(res))
-        }
-        sites.all().then(res => {
-          if (res) {
-            this.sites = res.filter(item => item.isActive)
-            if (this.sites.length && (this.site === undefined || !this.sites.some(x => x.key === this.site.key))) {
-              this.siteClick(this.sites[0].name, true)
-            }
-          }
-        })
-      }).catch(error => {
+      } catch (error) {
         this.$message.error('获取云端源站失败. ' + error)
-      })
+      }
     },
     getAllSites () {
       sites.all().then(res => {

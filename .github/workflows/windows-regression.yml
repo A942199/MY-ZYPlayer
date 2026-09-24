@@ -1,0 +1,34 @@
+name: windows-regression
+
+on:
+  pull_request:
+    branches:
+      - master
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'package.json'
+      - '.github/workflows/windows-regression.yml'
+
+jobs:
+  electron-e2e:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '16'
+          cache: npm
+      - run: npm install --ignore-scripts --package-lock=false --legacy-peer-deps --registry=https://registry.npmjs.org
+        shell: pwsh
+      - run: node node_modules/electron/install.js
+        shell: pwsh
+      - run: npx vue-cli-service electron:build --win --x64 --dir
+        shell: pwsh
+      - run: npm run test:e2e -- --in-place
+        shell: pwsh
+      - run: npm run test:douban:match-e2e
+        shell: pwsh
+      - run: node tests/navigation-audit-e2e.js
+        shell: pwsh

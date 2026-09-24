@@ -162,6 +162,7 @@ const remote = require('@electron/remote')
 const win = remote.getCurrentWindow()
 const URL = require('url')
 const VIDEO_DETAIL_CACHE = {}
+const { choosePlaylist } = require('../lib/playback/playlist')
 
 const addPlayerBtn = function (event, svg, attrs) {
   const player = this
@@ -507,20 +508,20 @@ export default {
       this.isStar = false
       this.exportablePlaylist = false
       this.fetchPlaylist().then(async (fullList) => {
-        let playlist = fullList[0].list // ZY支持的已移到首位
-        // 如果设定了特定的video flag, 获取该flag下的视频列表
-        const videoFlag = this.video.info.videoFlag
-        if (videoFlag) {
-          playlist = fullList.find(x => x.flag === videoFlag).list
-        }
+        const selection = choosePlaylist(fullList, this.video.info.videoFlag, index)
+        const playlist = selection.playlist
+        index = selection.index
+        if (selection.fallback) this.video.info.videoFlag = selection.flag || ''
+        if (this.video.info.index !== index) this.video.info.index = index
         this.right.list = playlist
-        let url = playlist[index].includes('$') ? playlist[index].split('$')[1] : playlist[index]
+
+        const selected = playlist[index]
+        let url = selected.includes('$') ? selected.split('$')[1] : selected
+        if (!url) throw new Error('当前剧集没有播放地址')
+
         const resolved = await zy.resolvePlay(this.video.key, url)
         if (resolved) {
-          if (!resolved.url) {
-            this.$message.error('该源未返回可播放地址')
-            return
-          }
+          if (!resolved.url) throw new Error('该源未返回可播放地址')
           url = resolved.url
           if (resolved.headers && resolved.headers.length) {
             await ipcRenderer.invoke('myvideo:set-playback-headers', {
@@ -529,6 +530,7 @@ export default {
             })
           }
         }
+
         const mediaPath = (() => {
           try {
             return new URL.URL(url).pathname
@@ -545,26 +547,31 @@ export default {
             return itemUrl.split('?')[0].endsWith('.m3u8')
           }
         })) this.exportablePlaylist = true
-        if (!mediaPath.endsWith('.m3u8') && !mediaPath.endsWith('.mp4')) {
+
+        const normalizedMediaPath = mediaPath.toLowerCase()
+        if (!normalizedMediaPath.endsWith('.m3u8') && !normalizedMediaPath.endsWith('.mp4')) {
           const currentSite = await sites.find({ key: this.video.key })
+          if (!currentSite) throw new Error('当前播放源已不存在')
           this.$message.info('即将调用解析接口播放，请等待...')
-          if (currentSite.jiexiUrl) {
-            this.onlineUrl = currentSite.jiexiUrl + url
-          } else {
-            this.onlineUrl = this.setting.defaultParseURL + url
-          }
+          const configuredParser = String(currentSite.jiexiUrl || '').trim()
+          const useDefaultParser = !configuredParser || ['default', '默认'].includes(configuredParser.toLowerCase())
+          const parserBase = useDefaultParser ? String(this.setting.defaultParseURL || '').trim() : configuredParser
+          if (!parserBase) throw new Error('未配置解析接口')
+          this.onlineUrl = parserBase + url
           this.videoPlaying('online')
           return
-        } else {
-          const ext = mediaPath.match(/\.\w+?$/)[0].slice(1)
-          this.getPlayer(ext)
         }
+
+        const extMatch = normalizedMediaPath.match(/\.\w+?$/)
+        if (!extMatch) throw new Error('无法识别媒体格式')
+        this.getPlayer(extMatch[0].slice(1))
         this.xg.src = url
         const key = this.video.key + '@' + this.video.info.id
-        const startTime = VIDEO_DETAIL_CACHE[key].startPosition || 0
+        const startTime = (VIDEO_DETAIL_CACHE[key] && VIDEO_DETAIL_CACHE[key].startPosition) || 0
         this.xg.play()
         setTimeout(() => {
-          if (!document.getElementById('xgplayer').querySelector('video')) {
+          const root = document.getElementById('xgplayer')
+          if (root && !root.querySelector('video')) {
             this.getPlayer(this.playerType, true)
             this.getUrls()
           }
@@ -573,8 +580,8 @@ export default {
         if (document.querySelector('.xgplayer-playbackrate')) document.querySelector('.xgplayer-playbackrate').style.display = 'inline-block'
         this.xg.once('playing', () => {
           this.xg.currentTime = time > startTime ? time : startTime
-          if (VIDEO_DETAIL_CACHE[key].startPosition) this.xg.addProgressDot(VIDEO_DETAIL_CACHE[key].startPosition, '片头')
-          if (VIDEO_DETAIL_CACHE[key].endPosition) this.xg.addProgressDot(this.xg.duration - VIDEO_DETAIL_CACHE[key].endPosition, '片尾')
+          if (VIDEO_DETAIL_CACHE[key] && VIDEO_DETAIL_CACHE[key].startPosition) this.xg.addProgressDot(VIDEO_DETAIL_CACHE[key].startPosition, '片头')
+          if (VIDEO_DETAIL_CACHE[key] && VIDEO_DETAIL_CACHE[key].endPosition) this.xg.addProgressDot(this.xg.duration - VIDEO_DETAIL_CACHE[key].endPosition, '片尾')
         })
         this.videoPlaying()
         this.skipendStatus = false
@@ -583,39 +590,39 @@ export default {
             this.video.info.time = 0
             this.video.info.index++
           }
-          this.xg.off('ended') // 明明是once为何会触发多次，得注销掉以真正只执行一次
+          this.xg.off('ended')
         })
+      }).catch(err => {
+        console.error('播放列表或地址解析失败:', err)
+        this.$message.error('播放地址可能已失效，请换源并调整收藏：' + err.message)
+        this.name = this.video.info.name
+        this.updateStar()
+        this.otherEvent()
       })
     },
-    fetchPlaylist () {
-      return new Promise((resolve) => {
-        const cacheKey = this.video.key + '@' + this.video.info.id
-        if (VIDEO_DETAIL_CACHE[cacheKey] && VIDEO_DETAIL_CACHE[cacheKey].list && VIDEO_DETAIL_CACHE[cacheKey].list.length) {
-          this.name = VIDEO_DETAIL_CACHE[cacheKey].name
-          resolve(VIDEO_DETAIL_CACHE[cacheKey].list)
-        }
-        let res
-        if (!this.DetailCache[cacheKey]) {
-          zy.detail(this.video.key, this.video.info.id).then(res => {
-            this.DetailCache[cacheKey] = res
-            res = this.DetailCache[cacheKey]
-            this.name = res.name
-            VIDEO_DETAIL_CACHE[cacheKey] = Object.assign(VIDEO_DETAIL_CACHE[cacheKey] || { }, {
-              list: res.fullList,
-              name: res.name
-            })
-            resolve(res.fullList)
-          }).catch(err => { this.$message.error('播放地址可能已失效，请换源并调整收藏', err); this.name = this.video.info.name; this.updateStar(); this.otherEvent() })
-        } else {
-          res = this.DetailCache[cacheKey]
-          this.name = res.name
-          VIDEO_DETAIL_CACHE[cacheKey] = Object.assign(VIDEO_DETAIL_CACHE[cacheKey] || { }, {
-            list: res.fullList,
-            name: res.name
-          })
-          resolve(res.fullList)
-        }
+    async fetchPlaylist () {
+      const cacheKey = this.video.key + '@' + this.video.info.id
+      const cached = VIDEO_DETAIL_CACHE[cacheKey]
+      if (cached && Array.isArray(cached.list) && cached.list.length) {
+        this.name = cached.name || this.video.info.name
+        return cached.list
+      }
+
+      let detail = this.DetailCache[cacheKey]
+      if (!detail) {
+        detail = await zy.detail(this.video.key, this.video.info.id)
+        this.DetailCache[cacheKey] = detail
+      }
+      if (!detail || !Array.isArray(detail.fullList) || !detail.fullList.length) {
+        throw new Error('源未返回播放列表')
+      }
+
+      this.name = detail.name || this.video.info.name
+      VIDEO_DETAIL_CACHE[cacheKey] = Object.assign(VIDEO_DETAIL_CACHE[cacheKey] || {}, {
+        list: detail.fullList,
+        name: this.name
       })
+      return detail.fullList
     },
     async videoPlaying (isOnline) {
       const db = await history.find({ site: this.video.key, ids: this.video.info.id })
@@ -937,6 +944,7 @@ export default {
     async getOtherSites () {
       this.right.other = []
       const currentSite = await sites.find({ key: this.video.key })
+      if (!currentSite) return
       sites.all().then(sitesRes => {
         // 排除已关闭的源和当前源
         for (const siteItem of sitesRes.filter(x => x.isActive && x.group === currentSite.group && x.key !== this.video.key)) {

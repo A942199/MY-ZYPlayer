@@ -17,6 +17,7 @@ const cheerio = require('cheerio')
 const CryptoJS = require('crypto-js')
 const DEFAULT_TIMEOUT = 20000
 const SCRIPT_TIMEOUT = 5000
+const MAX_RESPONSE_BYTES = 12 * 1024 * 1024
 
 function argsify (value) {
   if (typeof value !== 'string') return value
@@ -161,10 +162,22 @@ class NativeHttpClient {
           return
         }
         const chunks = []
-        res.on('data', chunk => chunks.push(Buffer.from(chunk)))
+        let responseBytes = 0
+        const maxBytes = Number(options.maxBytes) || MAX_RESPONSE_BYTES
+        res.on('data', chunk => {
+          responseBytes += chunk.length
+          if (responseBytes > maxBytes) {
+            req.destroy(Object.assign(new Error('response too large'), { code: 'MYVIDEO_RESPONSE_TOO_LARGE' }))
+            return
+          }
+          chunks.push(Buffer.from(chunk))
+        })
         res.on('end', () => {
           try {
             const decoded = decodeBody(Buffer.concat(chunks), res.headers['content-encoding'])
+            if (decoded.length > maxBytes) {
+              throw Object.assign(new Error('response too large'), { code: 'MYVIDEO_RESPONSE_TOO_LARGE' })
+            }
             const rawData = decoded.toString('utf8')
             const data = compatibleJsonData(rawData)
             const responseHeaders = compatibleResponseHeaders(res.headers)

@@ -11,8 +11,11 @@ const DETAIL_TIMEOUT = 6000
 const FINGERPRINT_TIMEOUT = 4500
 const DOUBAN_MOVIE_ORIGIN = String(process.env.MY_ZYPLAYER_DOUBAN_MOVIE_ORIGIN || 'https://movie.douban.com').replace(/\/+$/, '')
 const DOUBAN_SEARCH_ORIGIN = String(process.env.MY_ZYPLAYER_DOUBAN_SEARCH_ORIGIN || 'https://www.douban.com').replace(/\/+$/, '')
-const IMAGE_CACHE_LIMIT = 120
+const IMAGE_MAX_BYTES = 2 * 1024 * 1024
+const IMAGE_CACHE_MAX_BYTES = 48 * 1024 * 1024
+const IMAGE_CACHE_LIMIT = 64
 const imageDataCache = new Map()
+let imageDataCacheBytes = 0
 
 function normalizeHeaders (headers) {
   if (!headers) return {}
@@ -83,12 +86,18 @@ function requestBuffer (url, options = {}, redirects = 0) {
         else req.destroy(new Error('Response too large'))
       })
       res.on('end', () => {
-        resolve({
-          status,
-          headers: res.headers,
-          body: decodeBody(Buffer.concat(chunks), res.headers['content-encoding']),
-          url: target.href
-        })
+        try {
+          const body = decodeBody(Buffer.concat(chunks), res.headers['content-encoding'])
+          if (body.length > maxBytes) throw new Error('Response too large')
+          resolve({
+            status,
+            headers: res.headers,
+            body,
+            url: target.href
+          })
+        } catch (error) {
+          reject(error)
+        }
       })
     })
     req.setTimeout(options.timeout || 10000, () => req.destroy(new Error('Request timed out')))
@@ -376,10 +385,15 @@ async function subjectDetail (payload = {}, dependencies = {}) {
 async function fetchImageData (payload = {}) {
   const url = String(payload.url || '').trim()
   if (!/^https?:\/\//i.test(url)) throw new Error('Douban image URL is invalid')
-  if (imageDataCache.has(url)) return imageDataCache.get(url)
+  if (imageDataCache.has(url)) {
+    const cached = imageDataCache.get(url)
+    imageDataCache.delete(url)
+    imageDataCache.set(url, cached)
+    return cached.result
+  }
 
   const response = await requestBuffer(url, {
-    maxBytes: 5 * 1024 * 1024,
+    maxBytes: IMAGE_MAX_BYTES,
     timeout: 12000,
     headers: {
       Accept: 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
@@ -394,9 +408,14 @@ async function fetchImageData (payload = {}) {
     contentType,
     dataUrl: 'data:' + contentType + ';base64,' + response.body.toString('base64')
   }
-  imageDataCache.set(url, result)
-  while (imageDataCache.size > IMAGE_CACHE_LIMIT) {
-    imageDataCache.delete(imageDataCache.keys().next().value)
+  const bytes = response.body.length
+  imageDataCache.set(url, { result, bytes })
+  imageDataCacheBytes += bytes
+  while (imageDataCache.size > IMAGE_CACHE_LIMIT || imageDataCacheBytes > IMAGE_CACHE_MAX_BYTES) {
+    const oldestKey = imageDataCache.keys().next().value
+    const oldest = imageDataCache.get(oldestKey)
+    imageDataCache.delete(oldestKey)
+    imageDataCacheBytes = Math.max(0, imageDataCacheBytes - (oldest ? oldest.bytes : 0))
   }
   return result
 }

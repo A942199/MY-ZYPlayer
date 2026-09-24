@@ -291,7 +291,7 @@ export default {
       })
     },
     backTop () {
-      if (this.setting.starViewMode === 'picture') {
+      if (this.setting.historyViewMode === 'picture') {
         document.getElementById('history-body').scrollTop = 0
       } else {
         this.$refs.historyTable.bodyWrapper.scrollTop = 0
