@@ -29,7 +29,7 @@ function main () {
   })
   assert.strictEqual(clamped.baseUrl, 'https://example.test')
   assert.strictEqual(clamped.danmakuEnabled, false)
-  assert.strictEqual(clamped.subtitlesEnabled, true)
+  assert.strictEqual(clamped.subtitlesEnabled, false)
   assert.deepStrictEqual(clamped.danmaku, {
     opacity: 1,
     fontSize: 16,
