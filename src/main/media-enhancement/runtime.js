@@ -114,7 +114,10 @@ function endpointUrl (config, pathname) {
   const base = new URL(config.baseUrl)
   const target = new URL(pathname, base.origin)
   const basePath = base.pathname.replace(/\/$/, '')
-  if (basePath) target.pathname = basePath + (pathname.startsWith('/') ? pathname : '/' + pathname)
+  if (basePath) {
+    const endpointPath = target.pathname.startsWith('/') ? target.pathname : '/' + target.pathname
+    target.pathname = basePath + endpointPath
+  }
   return target
 }
 
