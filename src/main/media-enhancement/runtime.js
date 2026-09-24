@@ -18,6 +18,8 @@ function normalizeCompanionConfig (input = {}) {
     throw new Error('字幕/弹幕服务地址无效')
   }
   if (!['http:', 'https:'].includes(url.protocol)) throw new Error('字幕/弹幕服务仅支持 HTTP/HTTPS')
+  const loopback = ['127.0.0.1', 'localhost', '::1'].includes(url.hostname)
+  if (url.protocol !== 'https:' && !loopback) throw new Error('远程字幕/弹幕服务必须使用 HTTPS')
   url.pathname = url.pathname.replace(/\/+$/, '')
   url.search = ''
   url.hash = ''
