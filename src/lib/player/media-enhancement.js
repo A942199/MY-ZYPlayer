@@ -26,7 +26,8 @@ function normalizeMediaEnhancementConfig (value = {}) {
     baseUrl: String(source.baseUrl || DEFAULT_CONFIG.baseUrl).trim() || DEFAULT_CONFIG.baseUrl,
     password: String(source.password || ''),
     danmakuEnabled: source.danmakuEnabled !== false,
-    subtitlesEnabled: source.subtitlesEnabled === true,
+    // Product invariant: external subtitles are opt-in per playback and never auto-requested.
+    subtitlesEnabled: false,
     danmaku: {
       opacity: clamp(danmaku.opacity, 0.2, 1, DEFAULT_CONFIG.danmaku.opacity),
       fontSize: clamp(danmaku.fontSize, 16, 42, DEFAULT_CONFIG.danmaku.fontSize),
