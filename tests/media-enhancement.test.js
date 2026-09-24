@@ -73,9 +73,13 @@ function main () {
   ])
   assert.strictEqual(comments.length, 3)
   assert.strictEqual(comments[0].text, '滚动')
-  assert.strictEqual(comments[1].mode, 'bottom')
-  assert.strictEqual(comments[2].mode, 'top')
-  assert.strictEqual(comments[2].color, '#ff0000')
+  const bottom = comments.find(row => row.text === '底部')
+  const top = comments.find(row => row.text === '顶部')
+  assert(bottom)
+  assert(top)
+  assert.strictEqual(bottom.mode, 'bottom')
+  assert.strictEqual(top.mode, 'top')
+  assert.strictEqual(top.color, '#ff0000')
 
   const candidates = allowedSubtitleCandidates([
     { language: 'en', fetchUrl: '/en', fileName: 'en.vtt' },
