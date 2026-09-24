@@ -8,7 +8,8 @@ const {
   buildMediaIdentity,
   normalizeDanmakuComments,
   allowedSubtitleCandidates,
-  playlistLabel
+  playlistLabel,
+  isGenericFeatureLabel
 } = require('../src/lib/player/media-enhancement')
 const { romanizeKanaTitle, embeddedAllowed } = require('../src/lib/player/subtitle-controller')
 
@@ -40,6 +41,15 @@ function main () {
   assert.deepStrictEqual(parseNumbers('S02E03'), { season: 2, episode: 3 })
   assert.deepStrictEqual(parseNumbers('第 7 集'), { season: null, episode: 7 })
   assert.strictEqual(playlistLabel('第三集$https://media/3.m3u8', 2), '第三集')
+  assert.strictEqual(isGenericFeatureLabel('正片'), true)
+  const genericFeature = buildMediaIdentity({
+    videoInfo: { name: '阿甘正传', type: '电影', index: 0 },
+    detail: { name: '阿甘正传' },
+    playlist: ['正片$https://cdn.example/forrest.mp4'],
+    selectedEntry: '正片$https://cdn.example/forrest.mp4'
+  })
+  assert.strictEqual(genericFeature.kind, 'movie')
+  assert.strictEqual(genericFeature.episode, undefined)
 
   const identity = buildMediaIdentity({
     videoInfo: { id: 'legal-high', name: '胜者即是正义', type: '日剧', year: 2012, index: 1 },
