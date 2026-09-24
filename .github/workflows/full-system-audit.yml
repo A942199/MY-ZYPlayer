@@ -14,10 +14,10 @@ jobs:
         with:
           node-version: '16'
       - run: npm install --ignore-scripts --package-lock=false --legacy-peer-deps --registry=https://registry.npmjs.org
+      - run: node node_modules/electron/install.js
       - run: npm run test
       - run: npm run test:douban
       - run: find src tests -name '*.js' -print0 | xargs -0 -n1 node --check
-      - run: node node_modules/electron/install.js
       - run: npm run build
       - name: Legacy lint audit
         continue-on-error: true
