@@ -193,7 +193,7 @@ function cacheSet (map, key, value, ttl = CACHE_TTL) {
 }
 
 function mediaKey (media) {
-  return [cleanText(media.tmdbId || ''), normalizeTitle(media.title), media.year || '', media.kind || '', media.season ?? '', media.episode ?? ''].join('|')
+  return [cleanText(media.tmdbId || ''), normalizeTitle(media.title), media.year || '', media.kind || '', media.season == null ? '' : media.season, media.episode == null ? '' : media.episode].join('|')
 }
 
 function titleScore (media, candidate) {
@@ -236,7 +236,9 @@ function danmakuEpisodeCandidates (data, media) {
     if (!episodeId || seen.has(episodeId)) return
     const title = firstValue(obj, ['animeTitle', 'anime_title', 'bangumiTitle', 'seriesTitle']) || inherited.title || firstValue(obj, ['title', 'name'])
     const episodeTitle = firstValue(obj, ['episodeTitle', 'episode_title', 'subtitle', 'episodeName', 'name'])
-    const episode = safeInt(obj.episode ?? obj.episodeNumber ?? obj.episodeNo, 0, 10000) ?? parseNumbers(episodeTitle).episode
+    const rawEpisode = obj.episode != null ? obj.episode : (obj.episodeNumber != null ? obj.episodeNumber : obj.episodeNo)
+    const parsedEpisode = safeInt(rawEpisode, 0, 10000)
+    const episode = parsedEpisode != null ? parsedEpisode : parseNumbers(episodeTitle).episode
     const yearText = firstValue(obj, ['year', 'animeYear', 'releaseYear']) || inherited.year || title
     const yearMatch = String(yearText || '').match(/(?:18|19|20|21)\d{2}/)
     const year = yearMatch ? Number(yearMatch[0]) : null
