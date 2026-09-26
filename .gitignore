@@ -25,3 +25,5 @@ pnpm-debug.log*
 /dist_electron
 .e2e-profile*/
 /build/myvideo/
+/build/danmu-api-runtime/
+/vendor/danmu-api/node_modules/

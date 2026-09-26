@@ -9,12 +9,12 @@
           :value="item.name">
         </el-option>
       </el-select>
-      <el-select v-model="selectedClassName" size="small" placeholder="类型" :popper-append-to-body="false" popper-class="popper" @change="classClick" v-if="classList && classList.length" v-show="!showFind">
+      <el-select v-model="selectedClassTid" size="small" placeholder="类型" :popper-append-to-body="false" popper-class="popper" @change="classClick" v-if="classList && classList.length" v-show="!showFind">
         <el-option
           v-for="item in classList"
           :key="item.tid"
-          :label="item.name"
-          :value="item.name">
+          :label="classOptionLabel(item)"
+          :value="item.tid">
         </el-option>
       </el-select>
       <el-select v-model="selectedSearchClassNames" size="small" multiple placeholder="类型" :popper-append-to-body="false" popper-class="popper" v-if="searchClassList && searchClassList.length" v-show="showFind && showToolbar" @remove-tag="refreshFilteredList" @change="refreshFilteredList">
@@ -310,10 +310,12 @@ import { mapMutations } from 'vuex'
 import { star, history, search, sites, setting } from '../lib/dexie'
 import zy from '../lib/site/tools'
 const myvideo = require('../lib/site/myvideo')
+const { findCategoryByTid, formatCategoryOptionLabel } = require('../lib/site/navigation')
 import Waterfall from 'vue-waterfall-plugin'
 import InfiniteLoading from 'vue-infinite-loading'
 const { clipboard } = require('electron')
 const FILM_DATA_CACHE = {} // key = site.key, value = classList; key = site.key + '@' + type.tid, value = {list, pageCount}
+const LATEST_CLASS_TID = '__latest__'
 export default {
   name: 'film',
   data () {
@@ -326,11 +328,12 @@ export default {
       searchClassList: [],
       type: {},
       selectedSiteName: '',
-      selectedClassName: '',
+      selectedClassTid: '',
       selectedSearchClassNames: [],
       totalpagecount: 0,
       pagecount: 0,
       recordcount: 0,
+      recordcountKnown: false,
       list: [],
       statusText: ' ',
       infiniteId: +new Date(),
@@ -471,6 +474,18 @@ export default {
   },
   methods: {
     ...mapMutations(['SET_VIEW', 'SET_DETAIL', 'SET_VIDEO', 'SET_SETTING', 'SET_DetailCache']),
+    classOptionLabel (item) {
+      return formatCategoryOptionLabel(item, {
+        selected: String(item && item.tid) === String(this.selectedClassTid),
+        visibleCount: this.filteredList.length,
+        totalCount: this.recordcount,
+        totalKnown: this.recordcountKnown
+      })
+    },
+    providerClassTid (item = this.type) {
+      if (!item) return undefined
+      return Object.prototype.hasOwnProperty.call(item, 'sourceTid') ? item.sourceTid : item.tid
+    },
     backTop () {
       const viewMode = this.showFind ? this.setting.searchViewMode : this.setting.view
       if (viewMode === 'picture') {
@@ -494,7 +509,6 @@ export default {
       filteredData = filteredData.filter(res => !this.setting.excludeR18Films || !this.containsClassFilterKeyword(res.type))
       filteredData = filteredData.filter(res => res.year >= this.selectedYears.start)
       filteredData = filteredData.filter(res => res.year <= this.selectedYears.end)
-      if (!this.showFind) this.selectedClassName = this.type.name + '    ' + filteredData.length + '/' + this.recordcount
       switch (this.sortKeyword) {
         case '按上映年份':
           filteredData.sort(function (a, b) {
@@ -574,6 +588,14 @@ export default {
       if (!target) return
       this.site = target
       this.selectedSiteName = target.name
+      this.type = {}
+      this.selectedClassTid = ''
+      this.totalpagecount = 0
+      this.pagecount = 0
+      this.recordcount = 0
+      this.recordcountKnown = false
+      this.areas = []
+      this.selectedAreas = []
       if (this.searchGroup === '站内' && this.searchTxt) {
         this.searchEvent()
         return
@@ -594,7 +616,7 @@ export default {
         }
         if (generation !== this.listGeneration) return
         if (!this.classList.length) throw new Error('源未返回分类')
-        const loaded = await this.classClick(this.type.name, generation)
+        const loaded = await this.classClick(this.classList[0].tid, generation)
         if (loaded === false) throw new Error('源首屏加载失败')
       } catch (error) {
         if (generation !== this.listGeneration) return
@@ -603,6 +625,7 @@ export default {
         this.filteredList = []
         this.classList = []
         this.type = {}
+        this.selectedClassTid = ''
         this.listComplete = true
         this.statusText = '源加载失败'
         if (allowFallback) {
@@ -617,27 +640,27 @@ export default {
       }
     },
     refreshClass () {
+      const currentTid = this.type && this.type.tid
       this.getClass().then(res => {
         this.classList = res
         // cache classList data
         FILM_DATA_CACHE[this.site.key] = {
           classList: this.classList
         }
-        this.classClick(this.type.name)
+        const nextType = findCategoryByTid(this.classList, currentTid) || this.classList[0]
+        this.classClick(nextType && nextType.tid)
       })
     },
-    async classClick (className, generation) {
+    async classClick (classTid, generation) {
       if (generation === undefined) generation = ++this.listGeneration
       if (generation !== this.listGeneration) return
       this.list = []
       this.filteredList = []
       this.statusText = ' '
       this.listComplete = false
-      this.type = this.classList.find(x => x.name === className)
+      this.type = findCategoryByTid(this.classList, classTid) || this.classList[0]
       this.infiniteHandlerCount = 0
-      if (!this.type) {
-        this.type = this.classList[0]
-      }
+      if (this.type) this.selectedClassTid = this.type.tid
       if (!this.type) {
         this.listComplete = true
         this.statusText = '暂无分类'
@@ -650,6 +673,7 @@ export default {
         this.totalpagecount = Number(cached.totalpagecount) || Number(cached.pagecount) || 0
         this.pagecount = Number(cached.pagecount) || 0
         this.recordcount = Number(cached.recordcount) || 0
+        this.recordcountKnown = Boolean(cached.recordcountKnown)
         this.list = cached.list.slice()
         this.areas = Array.isArray(cached.areas) ? cached.areas.slice() : []
         this.listComplete = Boolean(cached.complete)
@@ -657,11 +681,15 @@ export default {
         return true
       }
       try {
-        const res = await zy.page(this.site.key, this.type.tid)
+        const res = await zy.page(this.site.key, this.providerClassTid(this.type))
         if (generation !== this.listGeneration) return
         this.totalpagecount = Number(res && res.pagecount) || 1
         this.pagecount = this.totalpagecount
-        this.recordcount = Number(res && res.recordcount) || 0
+        const rawRecordcount = res && res.recordcount
+        this.recordcountKnown = res && typeof res.recordcountKnown === 'boolean'
+          ? res.recordcountKnown
+          : rawRecordcount !== null && rawRecordcount !== undefined && rawRecordcount !== '' && Number.isFinite(Number(rawRecordcount))
+        this.recordcount = this.recordcountKnown ? Math.max(0, Number(rawRecordcount) || 0) : 0
         await this.loadPage(generation)
         if (generation !== this.listGeneration) return
         this.infiniteId += 1
@@ -680,8 +708,17 @@ export default {
       return new Promise((resolve, reject) => {
         const key = this.site.key
         zy.class(key).then(res => {
-          const allClass = [{ name: '最新', tid: 0 }]
-          res.class.forEach(element => {
+          const sourceClasses = Array.isArray(res && res.class) ? res.class : []
+          if (myvideo.isSource(this.site)) {
+            // Keep CatVod/MyVideo tabs exactly as the provider returned them.
+            // The reference myvideo client renders raw tab indexes and passes only
+            // tab.ext + page/pg back to getCards; do not inject virtual categories
+            // or apply CMS/R18 root-category filtering here.
+            resolve(sourceClasses)
+            return
+          }
+          const allClass = [{ name: '最新', tid: LATEST_CLASS_TID, sourceTid: 0 }]
+          sourceClasses.forEach(element => {
             if (!this.containsClassFilterKeyword(element.name)) {
               allClass.push(element)
             }
@@ -712,7 +749,8 @@ export default {
     async loadPage (generation) {
       const key = this.site.key
       const typeTid = this.type.tid
-      if (generation !== this.listGeneration || key === undefined || typeTid === undefined) return { stale: true }
+      const providerTid = this.providerClassTid(this.type)
+      if (generation !== this.listGeneration || key === undefined || typeTid === undefined || providerTid === undefined) return { stale: true }
       if (this.listComplete) return { complete: true }
       let page = this.pagecount
       if (this.toFlipPagecount()) page = this.totalpagecount - this.pagecount + 1
@@ -723,7 +761,7 @@ export default {
       }
       this.statusText = ' '
       try {
-        let res = await zy.list(key, page, typeTid)
+        let res = await zy.list(key, page, providerTid)
         if (generation !== this.listGeneration || key !== this.site.key || typeTid !== this.type.tid) return { stale: true }
         this.pagecount -= 1
         const type = Object.prototype.toString.call(res)
@@ -733,13 +771,14 @@ export default {
         } else if (type === '[object Object]') {
           if (res.dl.dd && (res.dl.dd._t || (Object.prototype.toString.call(res.dl.dd) === '[object Array]' && res.dl.dd.some(e => e._t)))) this.list.push(res)
         }
-        const complete = zy.isPageOver(key, typeTid, page) || this.pagecount < 1
+        const complete = zy.isPageOver(key, providerTid, page) || this.pagecount < 1
         this.listComplete = complete
         const cacheKey = this.site.key + '@' + typeTid
         FILM_DATA_CACHE[cacheKey] = {
           totalpagecount: this.totalpagecount,
           pagecount: this.pagecount,
           recordcount: this.recordcount,
+          recordcountKnown: this.recordcountKnown,
           list: this.list.slice(),
           areas: [...new Set(this.list.map(ele => ele.area))].filter(x => x),
           complete

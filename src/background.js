@@ -6,6 +6,7 @@ import { initUpdater } from './lib/update/update'
 const { registerMyVideoIpc, applyPlaybackHeaders } = require('./main/myvideo/runtime')
 const { registerDoubanIpc } = require('./main/douban/runtime')
 const { registerMediaEnhancementIpc } = require('./main/media-enhancement/runtime')
+const { startLocalDanmuApi, stopLocalDanmuApi } = require('./main/media-enhancement/local-danmu-runtime')
 const path = require('path')
 require('@electron/remote/main').initialize()
 
@@ -124,6 +125,10 @@ app.on('window-all-closed', () => {
   app.quit()
 })
 
+app.on('before-quit', () => {
+  stopLocalDanmuApi()
+})
+
 app.on('activate', () => {
   if (win === null) {
     createWindow()
@@ -149,6 +154,9 @@ if (!gotTheLock) {
       }
     }
     createWindow()
+    startLocalDanmuApi().catch(error => {
+      console.error('[danmu_api] local runtime warmup failed:', error && error.message ? error.message : error)
+    })
     globalShortcut.register('Alt+Space', () => {
       if (win) {
         win.isFocused() ? win.blur() : win.focus()

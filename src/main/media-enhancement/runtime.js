@@ -11,6 +11,16 @@ const REQUEST_TIMEOUT = 7000
 const CACHE_TTL = 30 * 60 * 1000
 const danmakuCache = new Map()
 const subtitleCandidateCache = new Map()
+let localDanmuProviderResolver = null
+let localDanmuCacheResolver = null
+
+function setLocalDanmuProviderResolver (resolver) {
+  localDanmuProviderResolver = typeof resolver === 'function' ? resolver : null
+}
+
+function setLocalDanmuCacheResolver (resolver) {
+  localDanmuCacheResolver = typeof resolver === 'function' ? resolver : null
+}
 
 function cleanText (value, max = 512) {
   return String(value == null ? '' : value).trim().slice(0, max)
@@ -60,6 +70,11 @@ function parseNumbers (value) {
   }
   if (episode == null) {
     match = text.match(/第\s*0*(\d{1,4})\s*(?:集|話|话)/) || text.match(/(?:^|[^a-z0-9])e(?:p(?:isode)?)?\s*0*(\d{1,4})(?:\D|$)/i)
+    if (match) episode = safeInt(match[1], 0, 10000)
+  }
+  if (episode == null) {
+    const bareEpisodeLabel = text.replace(/^\s*【[^】]{1,80}】\s*/, '').trim()
+    match = bareEpisodeLabel.match(/^0*(\d{1,4})(?:\s*(?:集|話|话))?$/)
     if (match) episode = safeInt(match[1], 0, 10000)
   }
   return { season, episode }
@@ -196,7 +211,7 @@ function mediaKey (media) {
 }
 
 function titleScore (media, candidate) {
-  const wanted = uniqueStrings([media.title, media.originalTitle, media.aliases], 12).map(normalizeTitle).filter(Boolean)
+  const wanted = uniqueStrings([media.title, media.originalTitle, media.aliases], Infinity).map(normalizeTitle).filter(Boolean)
   const got = normalizeTitle(candidate)
   if (!got) return 0
   let score = 0
@@ -207,16 +222,52 @@ function titleScore (media, candidate) {
   return score
 }
 
-function walkObjects (value, out = [], depth = 0) {
-  if (depth > 5 || value == null) return out
+function assessDanmakuCandidate (media, candidate, sourceMode = 'search') {
+  const reasons = []
+  const wantedYear = safeInt(media.year, 1880, 2200)
+  const wantedSeason = safeInt(media.season, 0, 200)
+  const wantedEpisode = safeInt(media.episode, 0, 10000)
+  const candidateTitle = cleanText(candidate && candidate.title, 200)
+  const candidateTitleScore = Number(candidate && candidate.titleScore || 0)
+
+  if (wantedYear != null && candidate.year != null && wantedYear !== candidate.year) reasons.push('year_conflict')
+  if (wantedSeason != null && candidate.season != null && wantedSeason !== candidate.season) reasons.push('season_conflict')
+  if (wantedEpisode != null && candidate.episode != null && wantedEpisode !== candidate.episode) reasons.push('episode_conflict')
+
+  if (sourceMode === 'match') {
+    // The local /match endpoint can return show-level clips even when the filename
+    // contains SxxExx, so episodic playback still requires positive episode evidence.
+    if (candidateTitle && candidateTitleScore < 84) reasons.push('title_conflict')
+    if (wantedEpisode != null && candidate.episode == null) reasons.push('episode_unverified')
+    if (wantedSeason != null && wantedSeason !== 1 && candidate.season == null) reasons.push('season_unverified')
+  } else {
+    // Search results are broad candidates and need their own positive identity evidence.
+    if (!candidateTitle) reasons.push('title_missing')
+    else if (candidateTitleScore < 84) reasons.push('title_conflict')
+    if (wantedEpisode != null && candidate.episode == null) reasons.push('episode_missing')
+    if (wantedSeason != null && wantedSeason !== 1 && candidate.season == null) reasons.push('season_missing')
+  }
+
+  return { accepted: reasons.length === 0, reasons }
+}
+
+function remainingSearchTimeout (deadline, cap) {
+  const remaining = deadline - Date.now()
+  if (remaining <= 0) return 0
+  return Math.max(1, Math.min(Math.max(1, Number(cap) || 3500), remaining))
+}
+
+function walkObjects (value, out = [], depth = 0, maxArrayItems = 400) {
+  if (depth > 8 || value == null) return out
   if (Array.isArray(value)) {
-    value.slice(0, 400).forEach(item => walkObjects(item, out, depth + 1))
+    const items = Number.isFinite(maxArrayItems) ? value.slice(0, maxArrayItems) : value
+    items.forEach(item => walkObjects(item, out, depth + 1, maxArrayItems))
     return out
   }
   if (typeof value !== 'object') return out
   out.push(value)
   Object.values(value).forEach(child => {
-    if (Array.isArray(child) || (child && typeof child === 'object')) walkObjects(child, out, depth + 1)
+    if (Array.isArray(child) || (child && typeof child === 'object')) walkObjects(child, out, depth + 1, maxArrayItems)
   })
   return out
 }
@@ -226,7 +277,7 @@ function firstValue (obj, keys) {
   return ''
 }
 
-function danmakuEpisodeCandidates (data, media) {
+function danmakuEpisodeCandidates (data, media, sourceMode = 'search') {
   const out = []
   const seen = new Set()
 
@@ -235,29 +286,42 @@ function danmakuEpisodeCandidates (data, media) {
     if (!episodeId || seen.has(episodeId)) return
     const title = firstValue(obj, ['animeTitle', 'anime_title', 'bangumiTitle', 'seriesTitle']) || inherited.title || firstValue(obj, ['title', 'name'])
     const episodeTitle = firstValue(obj, ['episodeTitle', 'episode_title', 'subtitle', 'episodeName', 'name'])
+    const titleNumbers = parseNumbers(title)
+    const episodeNumbers = parseNumbers(episodeTitle)
+    const rawSeason = obj.season != null ? obj.season : (obj.seasonNumber != null ? obj.seasonNumber : obj.seasonNo)
     const rawEpisode = obj.episode != null ? obj.episode : (obj.episodeNumber != null ? obj.episodeNumber : obj.episodeNo)
-    const parsedEpisode = safeInt(rawEpisode, 0, 10000)
-    const episode = parsedEpisode != null ? parsedEpisode : parseNumbers(episodeTitle).episode
+    const explicitSeason = safeInt(rawSeason, 0, 200)
+    const explicitEpisode = safeInt(rawEpisode, 0, 10000)
+    const inheritedSeason = safeInt(inherited.season, 0, 200)
+    const season = explicitSeason != null ? explicitSeason : (episodeNumbers.season != null ? episodeNumbers.season : (titleNumbers.season != null ? titleNumbers.season : inheritedSeason))
+    const episode = explicitEpisode != null ? explicitEpisode : episodeNumbers.episode
     const yearText = firstValue(obj, ['year', 'animeYear', 'releaseYear']) || inherited.year || title
     const yearMatch = String(yearText || '').match(/(?:18|19|20|21)\d{2}/)
     const year = yearMatch ? Number(yearMatch[0]) : null
-    const score = titleScore(media, title)
-    if (score < 84) return
-    if (media.year && year && Number(media.year) !== year) return
-    if (media.episode != null && episode != null && Number(media.episode) !== episode) return
-    if (media.episode != null && episode == null) return
+    const candidateTitleScore = titleScore(media, title)
+    const candidate = { episodeId, title, episodeTitle, season, episode, year, titleScore: candidateTitleScore }
+    const admission = assessDanmakuCandidate(media, candidate, sourceMode)
+    if (!admission.accepted) return
+
+    let score = candidateTitleScore
+    if (media.year && year && Number(media.year) === year) score += 20
+    if (media.season != null && season != null && Number(media.season) === season) score += 30
+    if (media.episode != null && episode != null && Number(media.episode) === episode) score += 60
+    if (sourceMode === 'match' && media.episode != null && episode == null) score += 10
+
     seen.add(episodeId)
-    out.push({ episodeId, title, episodeTitle, score: score + (episode === Number(media.episode) ? 30 : 0) + (year === Number(media.year) ? 10 : 0) })
+    out.push({ episodeId, title, episodeTitle, season, episode, year, score })
   }
 
-  for (const parent of walkObjects(data)) {
+  for (const parent of walkObjects(data, [], 0, Infinity)) {
     const episodes = Array.isArray(parent && parent.episodes) ? parent.episodes : (Array.isArray(parent && parent.episodeList) ? parent.episodeList : null)
     if (!episodes || !episodes.length) continue
     const title = firstValue(parent, ['animeTitle', 'anime_title', 'bangumiTitle', 'seriesTitle', 'title', 'name'])
     const year = firstValue(parent, ['year', 'animeYear', 'releaseYear'])
-    episodes.slice(0, 500).forEach(episode => push(episode, { title, year }))
+    const season = firstValue(parent, ['season', 'seasonNumber', 'seasonNo'])
+    episodes.forEach(episodeRow => push(episodeRow, { title, year, season }))
   }
-  for (const obj of walkObjects(data)) push(obj)
+  for (const obj of walkObjects(data, [], 0, Infinity)) push(obj)
   return out.sort((a, b) => b.score - a.score)
 }
 
@@ -269,21 +333,212 @@ function providerUrl (base, pathname, query = {}) {
   return url.toString()
 }
 
-async function searchDanmakuProvider (provider, media) {
-  const aliases = uniqueStrings([media.originalTitle, media.title, media.aliases], 4)
-  for (const alias of aliases) {
+async function searchLocalDanmakuProvider (provider, media) {
+  const cachedCandidates = async () => {
+    if (!localDanmuCacheResolver) return []
     try {
-      const direct = await requestJson(providerUrl(provider.baseUrl, '/api/v2/search/episodes', {
-        anime: alias,
-        episode: media.episode == null ? undefined : media.episode,
+      const cached = await localDanmuCacheResolver()
+      return danmakuEpisodeCandidates(cached, media, 'search').slice(0, 8)
+    } catch (error) {
+      return []
+    }
+  }
+
+  const initialCached = await cachedCandidates()
+  if (initialCached.length) return initialCached
+
+  const deadline = Date.now() + 30000
+  const aliases = uniqueStrings([media.title, media.originalTitle, media.aliases], Infinity)
+  const primaryTitle = cleanText(media.title || media.originalTitle || (Array.isArray(media.aliases) ? media.aliases[0] : ''), 200)
+  const season = media.season == null ? 1 : Number(media.season)
+  const episode = media.episode == null ? null : Number(media.episode)
+  const year = media.year == null ? '' : String(media.year)
+  let lastError = null
+  let hadSuccessfulResponse = false
+
+  const fetchLocal = async (target, options = {}, cap = 12000) => {
+    const timeout = remainingSearchTimeout(deadline, cap)
+    if (!timeout) throw new Error('provider_search_budget_exhausted')
+    const data = await requestJson(target, { ...options, timeout })
+    hadSuccessfulResponse = true
+    return data
+  }
+
+  const trySearch = async (anime, includeEpisode = true, cap = 12000) => {
+    if (!anime || Date.now() >= deadline) return []
+    try {
+      const target = providerUrl(provider.baseUrl, '/api/v2/search/episodes', {
+        anime,
+        episode: includeEpisode && episode != null ? episode : undefined,
         tmdbId: media.tmdbId || undefined,
         v2: 'true'
-      }), { headers: provider.headers, timeout: 3500 })
-      const best = danmakuEpisodeCandidates(direct, media)[0]
-      if (best) return best
-    } catch (error) {}
+      })
+      const data = await fetchLocal(target, { headers: provider.headers }, cap)
+      const candidates = danmakuEpisodeCandidates(data, media, 'search').slice(0, 8)
+      if (candidates.length) return candidates
+      return await cachedCandidates()
+    } catch (error) {
+      lastError = error
+      return []
+    }
   }
-  return null
+
+  // Prefer the strongest identity first. The local API returns multiple provider
+  // candidates in one response; strict admission then removes remakes, wrong years,
+  // clip-style episode labels and wrong episode numbers. This is both faster and more
+  // reliable than broad alias searches or filename /match on a cold cache.
+  if (primaryTitle) {
+    const strongQueries = uniqueStrings([
+      year ? primaryTitle + ' (' + year + ')' : '',
+      primaryTitle
+    ], Infinity)
+    for (const queryTitle of strongQueries) {
+      const candidates = await trySearch(queryTitle, episode != null, 12000)
+      if (candidates.length) return candidates
+    }
+  }
+
+  // Only after the canonical title failed do we try alternate titles. This avoids a
+  // loose English alias (for example Legal High) replacing the correct Japanese show
+  // with a remake in the local service cache.
+  for (const alias of aliases) {
+    if (!alias || alias === primaryTitle || Date.now() >= deadline) continue
+    const exactCandidates = await trySearch(alias, episode != null, 8000)
+    if (exactCandidates.length) return exactCandidates
+    if (Date.now() >= deadline) break
+    const broadCandidates = await trySearch(alias, false, 6000)
+    if (broadCandidates.length) return broadCandidates
+  }
+
+  // /match remains a final cache-warming fallback. Never trust clip-style results
+  // without positive episode evidence; after every match attempt, re-read the warmed
+  // cache and apply the same strict admission rules used above.
+  if (primaryTitle && Date.now() < deadline) {
+    const buildFileName = includeYear => {
+      let fileName = primaryTitle
+      if (episode != null) {
+        const s = String(Math.max(0, Number.isFinite(season) ? season : 1)).padStart(2, '0')
+        const e = String(Math.max(0, episode)).padStart(2, '0')
+        fileName += (includeYear && year ? ' (' + year + ')' : '') + '.S' + s + 'E' + e + '.mp4'
+      } else {
+        fileName += (includeYear && year ? ' (' + year + ')' : '') + '.mp4'
+      }
+      return fileName
+    }
+    const fileNames = []
+    if (year) fileNames.push(buildFileName(true))
+    fileNames.push(buildFileName(false))
+    for (const fileName of uniqueStrings(fileNames, Infinity)) {
+      if (Date.now() >= deadline) break
+      try {
+        const matched = await fetchLocal(providerUrl(provider.baseUrl, '/api/v2/match'), {
+          method: 'POST',
+          body: JSON.stringify({ fileName }),
+          headers: provider.headers
+        }, 8000)
+        const directCandidates = danmakuEpisodeCandidates(matched, media, 'match').slice(0, 8)
+        if (directCandidates.length) return directCandidates
+        const warmedCandidates = await cachedCandidates()
+        if (warmedCandidates.length) return warmedCandidates
+      } catch (error) {
+        lastError = error
+      }
+    }
+  }
+
+  if (!hadSuccessfulResponse && lastError) throw lastError
+  return []
+}
+
+async function searchDanmakuProvider (provider, media) {
+  if (provider.localDanmuApi) return searchLocalDanmakuProvider(provider, media)
+  const budgetMs = Math.max(500, Number(provider.searchBudget) || 7000)
+  const deadline = Date.now() + budgetMs
+  let lastError = null
+  let hadSuccessfulResponse = false
+
+  const fetchCandidateJson = async (target, options = {}) => {
+    const timeout = remainingSearchTimeout(deadline, options.timeout || provider.searchTimeout || 3500)
+    if (!timeout) throw new Error('provider_search_budget_exhausted')
+    const data = await requestJson(target, { ...options, timeout })
+    hadSuccessfulResponse = true
+    return data
+  }
+
+  // Search first: it returns multiple provider candidates and lets MY-ZYPlayer
+  // perform strict title/year/season/episode admission itself. The local /match
+  // endpoint can fan out to slow upstreams and may select show-level clips.
+  const aliases = uniqueStrings([media.title, media.originalTitle, media.aliases], Infinity)
+  for (const alias of aliases) {
+    if (Date.now() >= deadline) break
+    const queryPasses = provider.localDanmuApi
+      ? [
+          // Broad local search is usually cached and returns the full episode list.
+          // MY-ZYPlayer then applies strict episode admission itself. The upstream
+          // episode-filtered query can fan out to slow providers, so keep it as fallback.
+          { anime: alias, v2: 'true' },
+          { anime: alias, episode: media.episode == null ? undefined : media.episode, tmdbId: media.tmdbId || undefined, v2: 'true' }
+        ]
+      : [
+          { anime: alias, episode: media.episode == null ? undefined : media.episode, tmdbId: media.tmdbId || undefined, v2: 'true' },
+          { anime: alias, tmdbId: media.tmdbId || undefined, v2: 'true' },
+          { anime: alias, v2: 'true' }
+        ]
+    const seenQueries = new Set()
+    for (const query of queryPasses) {
+      if (Date.now() >= deadline) break
+      const target = providerUrl(provider.baseUrl, '/api/v2/search/episodes', query)
+      if (seenQueries.has(target)) continue
+      seenQueries.add(target)
+      try {
+        const direct = await fetchCandidateJson(target, { headers: provider.headers, timeout: provider.searchTimeout || 3500 })
+        const candidates = danmakuEpisodeCandidates(direct, media, 'search').slice(0, 8)
+        if (candidates.length) return candidates
+        if (provider.localDanmuApi && query.episode == null && Date.now() < deadline) {
+          await new Promise(resolve => setTimeout(resolve, 120))
+          const retry = await fetchCandidateJson(target, { headers: provider.headers, timeout: Math.min(2500, provider.searchTimeout || 3500) })
+          const retryCandidates = danmakuEpisodeCandidates(retry, media, 'search').slice(0, 8)
+          if (retryCandidates.length) return retryCandidates
+        }
+      } catch (error) {
+        lastError = error
+      }
+    }
+  }
+
+  // /match is a fallback only. Use one strongest filename identity and give the
+  // local service enough time to finish its own slower upstream probing.
+  if (provider.localDanmuApi && Date.now() < deadline) {
+    const title = cleanText(media.title || media.originalTitle || (Array.isArray(media.aliases) ? media.aliases[0] : ''), 200)
+    const season = media.season == null ? 1 : Number(media.season)
+    const episode = media.episode == null ? null : Number(media.episode)
+    const year = media.year == null ? '' : String(media.year)
+    if (title) {
+      let fileName = title
+      if (episode != null) {
+        const s = String(Math.max(0, Number.isFinite(season) ? season : 1)).padStart(2, '0')
+        const e = String(Math.max(0, episode)).padStart(2, '0')
+        fileName += (year ? ' (' + year + ')' : '') + '.S' + s + 'E' + e + '.mp4'
+      } else {
+        fileName += (year ? ' (' + year + ')' : '') + '.mp4'
+      }
+      try {
+        const matched = await fetchCandidateJson(providerUrl(provider.baseUrl, '/api/v2/match'), {
+          method: 'POST',
+          body: JSON.stringify({ fileName }),
+          headers: provider.headers,
+          timeout: provider.matchTimeout || provider.searchTimeout || 12000
+        })
+        const candidates = danmakuEpisodeCandidates(matched, media, 'match').slice(0, 8)
+        if (candidates.length) return candidates
+      } catch (error) {
+        lastError = error
+      }
+    }
+  }
+
+  if (!hadSuccessfulResponse && lastError) throw lastError
+  return []
 }
 
 function normalizeDanmakuComments (data) {
@@ -319,30 +574,67 @@ function normalizeDanmakuComments (data) {
 
 async function resolveDanmaku (payload = {}) {
   const config = normalizeLocalConfig(payload.config)
-  const media = payload.media && typeof payload.media === 'object' ? payload.media : {}
-  if (!cleanText(media.title)) throw new Error('缺少弹幕匹配标题')
+  const inputMedia = payload.media && typeof payload.media === 'object' ? payload.media : {}
+  const fallbackTitle = cleanText(inputMedia.title || inputMedia.originalTitle || (Array.isArray(inputMedia.aliases) ? inputMedia.aliases[0] : ''))
+  if (!fallbackTitle) throw new Error('缺少弹幕匹配标题')
+  const media = { ...inputMedia, title: fallbackTitle }
   const key = mediaKey(media)
   if (!payload.force) {
     const cached = cacheGet(danmakuCache, key)
     if (cached) return { ...cached, cached: true }
   }
   const providers = []
+  const failures = []
+  if (localDanmuProviderResolver) {
+    try {
+      const localBaseUrl = cleanUrl(await localDanmuProviderResolver())
+      if (localBaseUrl) {
+        providers.push({
+          id: 'local-danmu-api',
+          name: '本地 danmu_api',
+          baseUrl: localBaseUrl,
+          headers: {},
+          localDanmuApi: true,
+          matchTimeout: 12000,
+          searchTimeout: 13000,
+          searchBudget: 15000,
+          commentTimeout: 12000
+        })
+      }
+    } catch (error) {
+      failures.push({ provider: 'local-danmu-api', code: cleanText(error && error.message || error, 100) })
+    }
+  }
   if (config.danmaku.dandanplayAppId && config.danmaku.dandanplayAppSecret) {
     providers.push({ id: 'dandanplay', name: '弹弹play', baseUrl: config.danmaku.dandanplayBaseUrl, headers: { 'X-AppId': config.danmaku.dandanplayAppId, 'X-AppSecret': config.danmaku.dandanplayAppSecret } })
   }
   config.danmaku.compatibleUrls.forEach((baseUrl, index) => {
     providers.push({ id: 'compatible-' + index, name: '兼容弹幕源 ' + (index + 1), baseUrl, headers: config.danmaku.compatibleToken ? { Authorization: 'Bearer ' + config.danmaku.compatibleToken } : {} })
   })
-  if (!providers.length) return { enabled: false, matched: false, comments: [], provider: '', providerName: '', reason: 'unconfigured' }
-  const failures = []
+  if (!providers.length) {
+    if (failures.length) return { enabled: true, matched: false, comments: [], failures, transientFailure: true }
+    return { enabled: false, matched: false, comments: [], provider: '', providerName: '', reason: 'unconfigured' }
+  }
   for (const provider of providers) {
     try {
-      const match = await searchDanmakuProvider(provider, media)
-      if (!match) continue
-      const data = await requestJson(providerUrl(provider.baseUrl, '/api/v2/comment/' + encodeURIComponent(match.episodeId), { withRelated: 'true', chConvert: 1 }), { headers: provider.headers, timeout: 4000, maxBytes: 6 * 1024 * 1024 })
-      const comments = normalizeDanmakuComments(data)
-      if (!comments.length) continue
-      return cacheSet(danmakuCache, key, { enabled: true, matched: true, provider: provider.id, providerName: provider.name, episodeId: match.episodeId, comments, failover: failures.length > 0 }, 6 * 60 * 60 * 1000)
+      const matches = await searchDanmakuProvider(provider, media)
+      if (!matches || !matches.length) continue
+      const commentQuery = provider.localDanmuApi
+        ? { format: 'json', duration: 'true' }
+        : { withRelated: 'true', chConvert: 1 }
+      const commentMaxBytes = provider.localDanmuApi ? 32 * 1024 * 1024 : 6 * 1024 * 1024
+      const candidateFailures = []
+      for (const match of matches) {
+        try {
+          const data = await requestJson(providerUrl(provider.baseUrl, '/api/v2/comment/' + encodeURIComponent(match.episodeId), commentQuery), { headers: provider.headers, timeout: provider.commentTimeout || 4000, maxBytes: commentMaxBytes })
+          const comments = normalizeDanmakuComments(data)
+          if (!comments.length) continue
+          return cacheSet(danmakuCache, key, { enabled: true, matched: true, provider: provider.id, providerName: provider.name, episodeId: match.episodeId, comments, failover: failures.length > 0 || candidateFailures.length > 0, failures: failures.concat(candidateFailures).slice(0, 8) }, 6 * 60 * 60 * 1000)
+        } catch (error) {
+          candidateFailures.push({ provider: provider.id, episodeId: match.episodeId, code: cleanText(error && error.message || error, 100) })
+        }
+      }
+      if (candidateFailures.length === matches.length) failures.push(...candidateFailures.slice(0, 3))
     } catch (error) {
       failures.push({ provider: provider.id, code: cleanText(error && error.message || error, 100) })
     }
@@ -710,6 +1002,9 @@ async function fetchSubtitle (payload = {}) {
 }
 
 function registerMediaEnhancementIpc (ipcMain) {
+  const { startLocalDanmuApi, readLocalDanmuAnimeCache } = require('./local-danmu-runtime')
+  setLocalDanmuProviderResolver(startLocalDanmuApi)
+  setLocalDanmuCacheResolver(readLocalDanmuAnimeCache)
   ipcMain.handle('media-enhancement:danmaku-resolve', (event, payload) => resolveDanmaku(payload))
   ipcMain.handle('media-enhancement:subtitle-resolve', (event, payload) => resolveSubtitles(payload))
   ipcMain.handle('media-enhancement:subtitle-fetch', (event, payload) => fetchSubtitle(payload))
@@ -719,6 +1014,8 @@ module.exports = {
   normalizeLocalConfig,
   requestBuffer,
   normalizeDanmakuComments,
+  setLocalDanmuProviderResolver,
+  setLocalDanmuCacheResolver,
   classifySubtitleLanguage,
   srtToVtt,
   assToVtt,

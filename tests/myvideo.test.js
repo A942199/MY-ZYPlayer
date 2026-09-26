@@ -6,6 +6,7 @@ const crypto = require('crypto')
 const path = require('path')
 const cms = require('../src/lib/site/cms')
 const myvideo = require('../src/lib/site/myvideo')
+const { findCategoryByTid, formatCategoryOptionLabel } = require('../src/lib/site/navigation')
 const { SourceWorker } = require('../src/main/myvideo/runtime')
 
 const root = path.resolve(__dirname, '..')
@@ -99,6 +100,42 @@ async function testTvImport () {
   assert.strictEqual(manualCms.sourceKind, 'cms')
   assert.strictEqual(new Set(merged.map(site => site.key)).size, merged.length)
   assert.deepStrictEqual(merged.map(site => site.id), merged.map((site, index) => index + 1))
+}
+
+async function testNavigationCategories () {
+  const tabs = [
+    { name: '日番', ext: { id: 'jp' } },
+    { name: '美番', ext: { id: 'us' } },
+    { name: '免费源，若购买所得请去退款' },
+    { name: 'TG群：https://t.me/seeseeni' },
+    { name: '日番', ext: { id: 'jp-alt' } }
+  ]
+  const normalized = myvideo.normalizeTabs(tabs)
+  assert.deepStrictEqual(normalized.map(row => row.name), tabs.map(tab => tab.name), 'MyVideo tabs must be preserved exactly like the reference myvideo client')
+  assert.deepStrictEqual(normalized.map(row => row.index), [0, 1, 2, 3, 4], 'MyVideo tab identity must remain the original provider array index')
+
+  assert.deepStrictEqual(
+    myvideo.buildTabRequestArgs({ name: '日番', ext: { id: 'jp', area: '日本' }, type_id: 999 }, 3),
+    { id: 'jp', area: '日本', page: 3, pg: 3 },
+    'getCards args must match myvideo: tab.ext plus page/pg only'
+  )
+  assert.deepStrictEqual(
+    myvideo.buildTabRequestArgs({ name: '公告', id: 'ignored-top-level-id' }, 2),
+    { page: 2, pg: 2 },
+    'Top-level tab fields must not be guessed into getCards args'
+  )
+
+  const duplicateNames = [
+    { tid: 'myvideo-tab:0', name: '日番' },
+    { tid: 'myvideo-tab:4', name: '日番' }
+  ]
+  assert.strictEqual(findCategoryByTid(duplicateNames, 'myvideo-tab:4'), duplicateNames[1], 'Category selection must be keyed by raw provider index, not display name')
+  assert.strictEqual(formatCategoryOptionLabel({ name: '首页' }, { selected: true, visibleCount: 40, totalKnown: false, totalCount: 0 }), '首页    40')
+  assert.strictEqual(formatCategoryOptionLabel({ name: '首页' }, { selected: true, visibleCount: 40, totalKnown: true, totalCount: 0 }), '首页    40', 'Invalid zero totals must not render as 40/0')
+
+  const page = await myvideo.page()
+  assert.strictEqual(page.recordcount, null)
+  assert.strictEqual(page.recordcountKnown, false)
 }
 
 async function testRuntime () {
@@ -227,6 +264,7 @@ async function testJSEncryptCompat () {
 async function main () {
   await testCms()
   await testTvImport()
+  await testNavigationCategories()
   await testRuntime()
   await testJSEncryptCompat()
   console.log('MyVideo compatibility unit tests passed')

@@ -1,4 +1,5 @@
 const { buildMyVideoWorker } = require('./scripts/build-myvideo-worker')
+const { prepareDanmuApiRuntime } = require('./scripts/prepare-danmu-api-runtime')
 
 module.exports = {
   publicPath: './',
@@ -19,13 +20,14 @@ module.exports = {
     electronBuilder: {
       nodeIntegration: true,
       builderOptions: {
-        beforePack: async () => {
-          await buildMyVideoWorker()
-        },
         extraResources: [
           {
             from: 'build/myvideo/runtime.worker.js',
             to: 'myvideo/runtime.worker.js'
+          },
+          {
+            from: 'build/danmu-api-runtime',
+            to: 'danmu-api'
           }
         ],
         nsis: {

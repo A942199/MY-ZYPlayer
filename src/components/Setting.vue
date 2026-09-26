@@ -165,6 +165,7 @@
     <div> <!-- 本地字幕/弹幕源 -->
       <el-dialog :visible.sync="show.mediaEnhancementDialog" v-if="show.mediaEnhancementDialog" title="本地字幕/弹幕源" :append-to-body="true" @close="closeDialog" width="520px">
         <el-form label-width="90px" label-position="left" size="small">
+          <div class="media-enhancement-dialog-note">弹幕主源已内置本地 danmu_api，由 MY-ZYPlayer 自动启动，无需填写地址。下面的弹弹play / 兼容弹幕源仅作为可选备用源。</div>
           <el-form-item label="弹弹 App ID">
             <el-input v-model="mediaEnhancementDraft.providers.danmaku.dandanplayAppId" placeholder="DANDANPLAY_APP_ID" />
           </el-form-item>
@@ -192,7 +193,7 @@
           <el-form-item label="SubDL Key">
             <el-input v-model="mediaEnhancementDraft.providers.subtitles.subdlApiKey" type="password" show-password />
           </el-form-item>
-          <div class="media-enhancement-dialog-note">所有匹配直接由本机 Electron 主进程连接弹幕/字幕提供方，不再经过 video.zi-quan.com。API Key 只保存在本机设置数据库。</div>
+          <div class="media-enhancement-dialog-note">弹幕匹配由本机 danmu_api 直接访问视频平台源；字幕仍由本机 Electron 主进程连接字幕提供方。不经过 video.zi-quan.com。API Key 只保存在本机设置数据库。</div>
         </el-form>
         <span slot="footer" class="dialog-footer">
           <el-button @click="closeDialog">取消</el-button>

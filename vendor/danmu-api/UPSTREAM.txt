@@ -1,0 +1,3 @@
+﻿Upstream: https://github.com/huangxd-/danmu_api
+Revision: 280b2327ccf06fb5e32a1db7051025359121a2c1
+Vendored for local MY-ZYPlayer danmaku runtime.

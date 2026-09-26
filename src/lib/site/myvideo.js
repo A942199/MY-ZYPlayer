@@ -5,6 +5,21 @@ const PLAY_PREFIX = 'myvideo-play:'
 const ID_PREFIX = 'myvideo-id:'
 const pageState = new Map()
 
+function normalizeTabs (tabs) {
+  return (Array.isArray(tabs) ? tabs : []).map((tab, index) => ({
+    tab: tab || {},
+    index,
+    name: (tab && tab.name) || ('分类 ' + (index + 1))
+  }))
+}
+
+function buildTabRequestArgs (tab, pageNo) {
+  return Object.assign({}, (tab && tab.ext) || {}, {
+    page: pageNo,
+    pg: pageNo
+  })
+}
+
 function isSource (site) {
   if (!site) return false
   return Number(site.type) === 3 &&
@@ -78,14 +93,15 @@ async function config (site) {
 async function classes (site) {
   const data = await config(site)
   return {
-    class: (data.tabs || []).map((tab, index) => ({
-      tid: TAB_PREFIX + index,
-      name: tab.name || ('分类 ' + (index + 1))
+    class: normalizeTabs(data.tabs).map(row => ({
+      tid: TAB_PREFIX + row.index,
+      name: row.name || ('分类 ' + (row.index + 1))
     })),
     page: 1,
     pagecount: 999,
     pagesize: 20,
-    recordcount: 0
+    recordcount: null,
+    recordcountKnown: false
   }
 }
 
@@ -94,7 +110,8 @@ async function page () {
     page: 1,
     pagecount: 999,
     pagesize: 20,
-    recordcount: 0
+    recordcount: null,
+    recordcountKnown: false
   }
 }
 
@@ -106,12 +123,7 @@ async function list (site, pg, tid) {
     index = Number(tid.slice(TAB_PREFIX.length)) || 0
   }
   const tab = tabs[index] || tabs[0] || { ext: {} }
-  const args = {
-    ...(tab.ext || {}),
-    id: tab.ext?.id ?? tab.id ?? '',
-    ext: tab.ext || {},
-    page: pg
-  }
+  const args = buildTabRequestArgs(tab, pg)
   const result = (await runtimeCall(site, 'getCards', args)) || {}
   const list = result.list || []
   pageState.set(
@@ -272,6 +284,8 @@ function importSites (payload, configUrl) {
 
 module.exports = {
   isSource,
+  buildTabRequestArgs,
+  normalizeTabs,
   classes,
   page,
   list,

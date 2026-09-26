@@ -6,14 +6,27 @@ const {
   normalizeLocalConfig,
   resolveDanmaku,
   resolveSubtitles,
-  fetchSubtitle
+  fetchSubtitle,
+  setLocalDanmuProviderResolver
 } = require('../src/main/media-enhancement/runtime')
 
 function startServer () {
   return new Promise(resolve => {
-    const stats = { danmakuSearch: 0, danmakuComments: 0, jimakuSearch: 0, jimakuFiles: 0, subtitleFetch: 0 }
+    const stats = { danmakuMatch: 0, danmakuSearch: 0, danmakuComments: 0, jimakuSearch: 0, jimakuFiles: 0, subtitleFetch: 0 }
     const server = http.createServer((req, res) => {
       const url = new URL(req.url, 'http://127.0.0.1')
+      if (url.pathname === '/api/v2/match' && req.method === 'POST') {
+        stats.danmakuMatch++
+        let body = ''
+        req.on('data', chunk => { body += chunk })
+        req.on('end', () => {
+          const input = JSON.parse(body || '{}')
+          assert(String(input.fileName || '').includes('S01E02'))
+          res.writeHead(200, { 'content-type': 'application/json' })
+          res.end(JSON.stringify({ isMatched: true, matches: [{ animeTitle: 'リーガル・ハイ(2012)', episodeId: 'e2', episodeTitle: 'S01E02', year: 2012 }] }))
+        })
+        return
+      }
       if (url.pathname === '/api/v2/search/episodes') {
         stats.danmakuSearch++
         res.writeHead(200, { 'content-type': 'application/json' })
@@ -56,15 +69,24 @@ async function main () {
   const { server, stats } = await startServer()
   const base = 'http://127.0.0.1:' + server.address().port
   const config = normalizeLocalConfig({
-    danmaku: { compatibleUrls: [base] },
+    danmaku: {},
     subtitles: { jimakuApiKey: 'local-test', jimakuBaseUrl: base }
   })
   try {
+    setLocalDanmuProviderResolver(async () => base)
     const media = { title: '胜者即是正义', originalTitle: 'リーガル・ハイ', aliases: ['Legal High'], kind: 'tv', season: 1, episode: 2, year: 2012 }
     const danmaku = await resolveDanmaku({ config, media })
     assert.strictEqual(danmaku.matched, true)
+    assert.strictEqual(danmaku.provider, 'local-danmu-api')
     assert.strictEqual(danmaku.comments.length, 1)
     assert.strictEqual(danmaku.comments[0].text, '本地弹幕')
+
+    const titleFallback = await resolveDanmaku({
+      config,
+      media: { originalTitle: 'リーガル・ハイ', aliases: ['Legal High'], kind: 'tv', season: 1, episode: 2, year: 2012 },
+      force: true
+    })
+    assert.strictEqual(titleFallback.matched, true)
 
     const subtitles = await resolveSubtitles({ config, media })
     assert.strictEqual(subtitles.candidates.length, 1)
@@ -75,10 +97,11 @@ async function main () {
     const subtitle = await fetchSubtitle({ config, fetchUrl: subtitles.candidates[0].fetchUrl })
     assert(subtitle.text.startsWith('WEBVTT'))
     assert.strictEqual(subtitle.language, 'ja')
-    assert(stats.danmakuSearch > 0 && stats.danmakuComments > 0)
+    assert(stats.danmakuMatch > 0 && stats.danmakuComments > 0)
     assert(stats.jimakuSearch > 0 && stats.jimakuFiles > 0 && stats.subtitleFetch > 0)
     console.log('Local subtitle/danmaku provider runtime tests passed')
   } finally {
+    setLocalDanmuProviderResolver(null)
     await new Promise(resolve => server.close(resolve))
   }
 }

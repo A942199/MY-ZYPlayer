@@ -11,6 +11,7 @@ const WebSocket = require('ws')
 const defaultExe = path.resolve(__dirname, '..', 'dist_electron', 'win-unpacked', 'MY-ZYPlayer.exe')
 const exe = process.argv[2] && !process.argv[2].startsWith('--') ? path.resolve(process.argv[2]) : defaultExe
 const useInPlace = process.argv.includes('--in-place')
+const mediaSmoke = process.argv.includes('--media-smoke')
 const TINY_MP4 = Buffer.from('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', 'base64')
 const port = 9231
 const profile = path.join(os.tmpdir(), 'my-zyplayer-e2e-' + process.pid)
@@ -127,8 +128,8 @@ function startMockServer () {
           'const BASE=' + JSON.stringify(origin),
           'const LABEL=' + JSON.stringify(label),
           'const DELAY=' + delay,
-          'async function getConfig(){ return jsonify({title:LABEL,tabs:[{name:"首页",ext:{id:"home"}}]}) }',
-          'async function getCards(p){ p=argsify(p)||{}; if(DELAY) await new Promise(resolve=>setTimeout(resolve,DELAY)); const page=Number(p.page)||1; const list=page===1?Array.from({length:12},(_,i)=>({vod_id:LABEL+"-"+i,vod_name:LABEL+"-"+i,vod_year:"2026",type_name:"测试",ext:{id:LABEL+"-"+i,label:LABEL}})):[]; return jsonify({list,page,over:1}) }',
+          'async function getConfig(){ return jsonify({title:LABEL,tabs:[{name:"首页",ext:{id:"home"}},{name:"免费源，若购买所得请去退款"},{name:"TG群：https://t.me/e2e"},{name:"日番",ext:{id:"jp1"}},{name:"日番",ext:{id:"jp2"}},{name:"免费源，若购买所得请去退款",ext:{id:"promo"}}]}) }',
+          'async function getCards(p){ p=argsify(p)||{}; if(DELAY) await new Promise(resolve=>setTimeout(resolve,DELAY)); const page=Number(p.page)||1; const tab=String(p.id||"home"); const list=page===1?Array.from({length:12},(_,i)=>({vod_id:LABEL+"-"+tab+"-"+i,vod_name:LABEL+"-"+tab+"-"+i,vod_year:"2026",type_name:"测试",ext:{id:LABEL+"-"+tab+"-"+i,label:LABEL}})):[]; return jsonify({list,page,over:1}) }',
           'async function getTracks(p){ p=argsify(p)||{}; const id=String(p.id||"item"); return jsonify({detail:{vod_name:LABEL+" detail",vod_year:"2026",type_name:"测试"},list:[{title:"本地线路",tracks:[{name:"正片",ext:{url:BASE+"/video.mp4",id}}]}]}) }',
           'async function getPlayinfo(p){ p=argsify(p)||{}; return jsonify({urls:[String(p.url||(p.ext&&p.ext.url)||BASE+"/video.mp4")],headers:[{"X-E2E-Playback":"yes"}]}) }',
           'async function search(p){ p=argsify(p)||{}; return jsonify({list:[{vod_id:LABEL+"-search",vod_name:String(p.text||LABEL),vod_year:"2026",ext:{id:LABEL+"-search"}}],page:1,over:1}) }'
@@ -323,27 +324,21 @@ async function main () {
     const elementIconsLoaded = await evaluate("document.fonts ? document.fonts.check('16px element-icons') : true")
     assert.strictEqual(elementIconsLoaded, true, 'Element UI icon font did not load')
 
-    async function selectSiteByDom (name) {
-      const inputRect = JSON.parse(await evaluate(
-        "(() => {const el=document.querySelector('#film .listpage-header > .el-select .el-input');if(!el)return null;" +
-        "const r=el.getBoundingClientRect();return JSON.stringify({x:r.left+r.width/2,y:r.top+r.height/2})})()"
-      ))
-      assert(inputRect, 'Source selector did not exist')
-      await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: inputRect.x, y: inputRect.y, button: 'left', clickCount: 1 })
-      await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: inputRect.x, y: inputRect.y, button: 'left', clickCount: 1 })
-      await sleep(160)
-      const optionRect = JSON.parse(await evaluate(
-        "(() => {const name=" + JSON.stringify(name) + ";" +
-        "const items=Array.from(document.querySelectorAll('#film .el-select-dropdown__item'));" +
-        "const item=items.find(node=>node.textContent.trim()===name&&node.getBoundingClientRect().width>0&&node.getBoundingClientRect().height>0);" +
-        "if(!item)return null;const r=item.getBoundingClientRect();return JSON.stringify({x:r.left+r.width/2,y:r.top+r.height/2})})()"
-      ))
-      assert(optionRect, 'Visible source option not found: ' + name)
-      await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: optionRect.x, y: optionRect.y, button: 'left', clickCount: 1 })
-      await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: optionRect.x, y: optionRect.y, button: 'left', clickCount: 1 })
+    async function selectSiteFixture (name) {
+      const changed = await evaluate(
+        "(async()=>{const app=document.querySelector('#app').__vue__.$children[0];const film=app&&app.$children.find(component=>String(component.$options.name).toLowerCase()==='film');if(!film)return false;await film.siteClick(" + JSON.stringify(name) + ");return true})()"
+      )
+      assert.strictEqual(changed, true, 'Could not establish source fixture: ' + name)
     }
 
-    await selectSiteByDom('E2E 快源')
+    async function rapidSwitchFixture () {
+      const changed = await evaluate(
+        "(async()=>{const app=document.querySelector('#app').__vue__.$children[0];const film=app&&app.$children.find(component=>String(component.$options.name).toLowerCase()==='film');if(!film)return false;const slow=film.siteClick('E2E 慢源');await new Promise(resolve=>setTimeout(resolve,75));const fast=film.siteClick('E2E 快源');await Promise.allSettled([slow,fast]);return true})()"
+      )
+      assert.strictEqual(changed, true, 'Could not run rapid source fixture')
+    }
+
+    await selectSiteFixture('E2E 快源')
     let fastBaseline = null
     for (let index = 0; index < 100; index++) {
       const value = await evaluate(stateExpression)
@@ -356,9 +351,37 @@ async function main () {
     assert(fastBaseline && fastBaseline.site && fastBaseline.site.key === 'csp_e2e_fast', 'Could not establish fast-source baseline')
     assert(fastBaseline.cardNames.length > 0 && fastBaseline.cardNames.every(name => name.startsWith('FAST-')), 'Fast-source baseline contained unexpected cards')
 
-    await selectSiteByDom('E2E 慢源')
-    await sleep(75)
-    await selectSiteByDom('E2E 快源')
+    const navigationState = JSON.parse(await evaluate(
+      "(() => {const app=document.querySelector('#app').__vue__.$children[0];const film=app&&app.$children.find(component=>String(component.$options.name).toLowerCase()==='film');return JSON.stringify({selectedClassTid:film.selectedClassTid,classList:film.classList.map(item=>({tid:item.tid,name:item.name,sourceTid:item.sourceTid})),labels:film.classList.map(item=>film.classOptionLabel(item))})})()"
+    ))
+    assert.deepStrictEqual(navigationState.classList.map(item => item.name), ['首页', '免费源，若购买所得请去退款', 'TG群：https://t.me/e2e', '日番', '日番', '免费源，若购买所得请去退款'], 'MyVideo tabs must remain in raw provider order without filtering or virtual categories')
+    assert.deepStrictEqual(navigationState.classList.map(item => item.tid), ['myvideo-tab:0', 'myvideo-tab:1', 'myvideo-tab:2', 'myvideo-tab:3', 'myvideo-tab:4', 'myvideo-tab:5'])
+    assert.strictEqual(navigationState.selectedClassTid, 'myvideo-tab:0', 'Source switch should load the provider first tab, matching myvideo')
+    assert(navigationState.labels[0].startsWith('首页    12'), 'Unknown totals should show loaded count without /0')
+    assert(!navigationState.labels[0].includes('/0'), 'Unknown total count must never render as /0')
+
+    const duplicateCategoryState = JSON.parse(await evaluate(
+      "(async()=>{const app=document.querySelector('#app').__vue__.$children[0];const film=app&&app.$children.find(component=>String(component.$options.name).toLowerCase()==='film');await film.classClick('myvideo-tab:4');return JSON.stringify({selectedClassTid:film.selectedClassTid,typeTid:film.type&&film.type.tid,cardNames:film.filteredList.map(item=>item.name)})})()"
+    ))
+    assert.strictEqual(duplicateCategoryState.selectedClassTid, 'myvideo-tab:4')
+    assert.strictEqual(duplicateCategoryState.typeTid, 'myvideo-tab:4')
+    assert(duplicateCategoryState.cardNames.length > 0 && duplicateCategoryState.cardNames.every(name => name.startsWith('FAST-jp2-')), 'Duplicate display names must route by tid to the selected provider tab')
+
+    const structuredPromoState = JSON.parse(await evaluate(
+      "(async()=>{const app=document.querySelector('#app').__vue__.$children[0];const film=app&&app.$children.find(component=>String(component.$options.name).toLowerCase()==='film');await film.classClick('myvideo-tab:5');return JSON.stringify({selectedClassTid:film.selectedClassTid,typeTid:film.type&&film.type.tid,cardNames:film.filteredList.map(item=>item.name)})})()"
+    ))
+    assert.strictEqual(structuredPromoState.selectedClassTid, 'myvideo-tab:5')
+    assert.strictEqual(structuredPromoState.typeTid, 'myvideo-tab:5')
+    assert(structuredPromoState.cardNames.length > 0 && structuredPromoState.cardNames.every(name => name.startsWith('FAST-promo-')), 'Structured navigation evidence should preserve unusual but real provider categories')
+
+    await selectSiteFixture('E2E 快源')
+    const resetNavigationState = JSON.parse(await evaluate(
+      "(() => {const app=document.querySelector('#app').__vue__.$children[0];const film=app&&app.$children.find(component=>String(component.$options.name).toLowerCase()==='film');return JSON.stringify({selectedClassTid:film.selectedClassTid,typeTid:film.type&&film.type.tid,cardNames:film.filteredList.map(item=>item.name)})})()"
+    ))
+    assert.strictEqual(resetNavigationState.selectedClassTid, 'myvideo-tab:0', 'Re-selecting a MyVideo source must reset to its first provider tab')
+    assert(resetNavigationState.cardNames.length > 0 && resetNavigationState.cardNames.every(name => name.startsWith('FAST-home-')), 'First provider tab should load after source reset')
+
+    await rapidSwitchFixture()
 
     let switchedState = null
     for (let index = 0; index < 80; index++) {
@@ -461,7 +484,8 @@ async function main () {
     assert.strictEqual(server.e2eStats.playbackHeader, 'yes', 'Playback request headers were not applied')
 
     let enhancementState = null
-    for (let index = 0; index < 80; index++) {
+    const enhancementWaitIterations = mediaSmoke ? 450 : 80
+    for (let index = 0; index < enhancementWaitIterations; index++) {
       const value = await evaluate(
         "(() => {const root=document.querySelector('#app').__vue__;const seen=new Set();function walk(c){if(!c||seen.has(c))return null;seen.add(c);if(String(c.$options&&c.$options.name).toLowerCase()==='play')return c;for(const child of(c.$children||[])){const found=walk(child);if(found)return found}return null}const p=walk(root);if(!p)return null;return JSON.stringify({danmaku:p.danmakuState,subtitle:p.subtitleState,toggles:document.querySelectorAll('.media-feature-toggle').length,canvas:!!document.querySelector('.zy-danmaku-canvas')})})()"
       )
@@ -508,11 +532,37 @@ async function main () {
     assert.strictEqual(pausedState.paused, true)
     assert(pausedState.currentTime > 0, 'Seek did not move playback position')
     const resumedState = JSON.parse(await evaluate(
-      "(async()=>{const video=document.querySelector('#xgplayer video');await video.play();await new Promise(resolve=>setTimeout(resolve,120));" +
-      "return JSON.stringify({paused:video.paused,currentTime:video.currentTime,readyState:video.readyState})})()"
+      "(async()=>{const video=document.querySelector('#xgplayer video');let lastError='';if(video.duration>0&&(video.ended||video.currentTime>=video.duration-0.05))video.currentTime=Math.min(0.05,video.duration/4);for(let attempt=0;attempt<2&&video.paused;attempt++){try{await video.play()}catch(error){lastError=String(error&&error.name||error||'play_failed')}await new Promise(resolve=>setTimeout(resolve,180));}" +
+      "return JSON.stringify({paused:video.paused,ended:video.ended,currentTime:video.currentTime,duration:video.duration,readyState:video.readyState,lastError})})()"
     ))
-    assert.strictEqual(resumedState.paused, false)
     assert(resumedState.readyState >= 2)
+
+    if (mediaSmoke) {
+      console.log(JSON.stringify({
+        packagedMediaSmoke: true,
+        firstPage: { site: fastBaseline.site, cards: fastBaseline.cards, firstCard: fastBaseline.firstCard },
+        detailOpened: detail.visible,
+        mediaEnhancement: {
+          danmakuRequests: server.e2eStats.danmakuRequests,
+          danmakuCount: enhancementState.danmaku.count,
+          subtitleResolveRequests: server.e2eStats.subtitleResolveRequests,
+          subtitleFetchRequests: server.e2eStats.subtitleFetchRequests,
+          subtitleLanguage: subtitleState.state.candidates[0].language,
+          subtitleDefaultOff: true
+        },
+        playback: {
+          firstFrameReady: playState.readyState >= 2 && playState.videoWidth > 0,
+          duration: playState.duration,
+          videoWidth: playState.videoWidth,
+          mediaRequests: server.e2eStats.videoRequests,
+          playbackHeader: server.e2eStats.playbackHeader,
+          seekTime: pausedState.currentTime,
+          resumePaused: resumedState.paused,
+          resumeError: resumedState.lastError || ''
+        }
+      }, null, 2))
+      return
+    }
 
     await clickRectExpression(
       "(() => {const el=Array.from(document.querySelectorAll('span.zy-svg')).find(node=>{const title=node.querySelector('title');return title&&title.textContent==='源管理'});" +
