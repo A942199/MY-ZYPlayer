@@ -316,28 +316,40 @@ function applyPlaybackHeaders (url, requestHeaders) {
 
 const manager = new RuntimeManager()
 
+async function callMyVideo (payload = {}) {
+  const source = payload.source || {}
+  return await manager.call(source, payload.method, payload.args)
+}
+
+async function loadMyVideoConfig (url) {
+  return await manager.loadConfig(url)
+}
+
+function clearMyVideoRuntimes () {
+  manager.clear()
+  return true
+}
+
+function setPlaybackHeaders (payload = {}) {
+  registerPlaybackHeaders(payload.url, payload.headers)
+  return true
+}
+
 function registerMyVideoIpc (ipcMain) {
-  ipcMain.handle('myvideo:call', async (event, payload) => {
-    const source = (payload && payload.source) || {}
-    return await manager.call(source, payload && payload.method, payload && payload.args)
-  })
-  ipcMain.handle('myvideo:load-config', async (event, url) => {
-    return await manager.loadConfig(url)
-  })
-  ipcMain.handle('myvideo:clear-runtimes', async () => {
-    manager.clear()
-    return true
-  })
-  ipcMain.handle('myvideo:set-playback-headers', async (event, payload) => {
-    registerPlaybackHeaders(payload && payload.url, payload && payload.headers)
-    return true
-  })
+  ipcMain.handle('myvideo:call', (event, payload) => callMyVideo(payload))
+  ipcMain.handle('myvideo:load-config', (event, url) => loadMyVideoConfig(url))
+  ipcMain.handle('myvideo:clear-runtimes', () => clearMyVideoRuntimes())
+  ipcMain.handle('myvideo:set-playback-headers', (event, payload) => setPlaybackHeaders(payload))
 }
 
 module.exports = {
   NativeHttpClient,
   SourceWorker,
   RuntimeManager,
+  callMyVideo,
+  loadMyVideoConfig,
+  clearMyVideoRuntimes,
+  setPlaybackHeaders,
   registerMyVideoIpc,
   registerPlaybackHeaders,
   applyPlaybackHeaders

@@ -1001,10 +1001,14 @@ async function fetchSubtitle (payload = {}) {
   return { text: vtt, language, contentType: 'text/vtt;charset=UTF-8' }
 }
 
-function registerMediaEnhancementIpc (ipcMain) {
+function initializeMediaEnhancementRuntime () {
   const { startLocalDanmuApi, readLocalDanmuAnimeCache } = require('./local-danmu-runtime')
   setLocalDanmuProviderResolver(startLocalDanmuApi)
   setLocalDanmuCacheResolver(readLocalDanmuAnimeCache)
+}
+
+function registerMediaEnhancementIpc (ipcMain) {
+  initializeMediaEnhancementRuntime()
   ipcMain.handle('media-enhancement:danmaku-resolve', (event, payload) => resolveDanmaku(payload))
   ipcMain.handle('media-enhancement:subtitle-resolve', (event, payload) => resolveSubtitles(payload))
   ipcMain.handle('media-enhancement:subtitle-fetch', (event, payload) => fetchSubtitle(payload))
@@ -1023,5 +1027,6 @@ module.exports = {
   resolveDanmaku,
   resolveSubtitles,
   fetchSubtitle,
+  initializeMediaEnhancementRuntime,
   registerMediaEnhancementIpc
 }

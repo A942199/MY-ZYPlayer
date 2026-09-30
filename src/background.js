@@ -1,21 +1,74 @@
 'use strict'
 
-import { app, protocol, BrowserWindow, globalShortcut, ipcMain } from 'electron'
+import { app, protocol, BrowserWindow, globalShortcut, ipcMain, shell, clipboard } from 'electron'
 import installExtension, { VUEJS_DEVTOOLS } from 'electron-devtools-installer'
-import { initUpdater } from './lib/update/update'
-const { registerMyVideoIpc, applyPlaybackHeaders } = require('./main/myvideo/runtime')
-const { registerDoubanIpc } = require('./main/douban/runtime')
-const { registerMediaEnhancementIpc } = require('./main/media-enhancement/runtime')
+import { initUpdater, updaterService } from './lib/update/update'
+const { applyPlaybackHeaders, callMyVideo, loadMyVideoConfig, clearMyVideoRuntimes, setPlaybackHeaders } = require('./main/myvideo/runtime')
+const { listSubjects, searchSubjects, subjectDetail, fetchImageData, probeUrl } = require('./main/douban/runtime')
+const { resolveDanmaku, resolveSubtitles, fetchSubtitle, initializeMediaEnhancementRuntime } = require('./main/media-enhancement/runtime')
 const { startLocalDanmuApi, stopLocalDanmuApi } = require('./main/media-enhancement/local-danmu-runtime')
 const path = require('path')
 const { createMainWindowWebPreferences } = require('./main/security/window-policy')
+const { registerAppIpc } = require('./main/ipc/app-ipc')
 require('@electron/remote/main').initialize()
 
 const isDevelopment = process.env.NODE_ENV !== 'production'
 
-registerMyVideoIpc(ipcMain)
-registerDoubanIpc(ipcMain)
-registerMediaEnhancementIpc(ipcMain)
+initializeMediaEnhancementRuntime()
+
+function requireMainWindow () {
+  if (!win || win.isDestroyed()) throw new Error('Main window is unavailable')
+  return win
+}
+
+registerAppIpc({
+  ipcMain,
+  getMainWindow: () => win,
+  services: {
+    window: {
+      minimize: () => requireMainWindow().minimize(),
+      maximizeToggle: () => {
+        const current = requireMainWindow()
+        if (current.isMaximized()) current.unmaximize()
+        else current.maximize()
+        return current.getBounds()
+      },
+      close: () => requireMainWindow().destroy(),
+      setAlwaysOnTop: value => requireMainWindow().setAlwaysOnTop(value),
+      setBounds: bounds => requireMainWindow().setBounds(bounds),
+      getBounds: () => requireMainWindow().getBounds()
+    },
+    clipboard: {
+      readText: () => clipboard.readText(),
+      writeText: text => clipboard.writeText(text)
+    },
+    shell: {
+      openExternal: url => shell.openExternal(url)
+    },
+    updater: updaterService,
+    douban: {
+      list: listSubjects,
+      search: searchSubjects,
+      detail: subjectDetail,
+      image: fetchImageData,
+      probe: probeUrl
+    },
+    sourceRuntime: {
+      call: callMyVideo,
+      loadConfig: loadMyVideoConfig,
+      clear: clearMyVideoRuntimes
+    },
+    playback: {
+      setHeaders: setPlaybackHeaders,
+      clearHeaders: () => false
+    },
+    media: {
+      resolveDanmaku,
+      resolveSubtitles,
+      fetchSubtitle
+    }
+  }
+})
 
 // const log = require('electron-log') // 用于调试主程序
 
