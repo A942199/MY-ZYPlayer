@@ -1,6 +1,6 @@
 'use strict'
 
-const { ipcRenderer } = require('electron')
+const { getPlatformApi } = require('../platform/api')
 const { sites } = require('../dexie')
 const zy = require('../site/tools').default || require('../site/tools')
 const myvideo = require('../site/myvideo')
@@ -173,7 +173,7 @@ async function verifyDetail (site, detail, identity) {
       try {
         const resolved = await resolveEpisode(site, entry)
         if (!/^https?:\/\//i.test(resolved.url)) continue
-        const probe = await ipcRenderer.invoke('douban:probe', {
+        const probe = await getPlatformApi().douban.probe({
           url: resolved.url,
           headers: resolved.headers,
           timeout: 4500

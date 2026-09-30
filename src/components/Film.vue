@@ -313,7 +313,7 @@ const myvideo = require('../lib/site/myvideo')
 const { findCategoryByTid, formatCategoryOptionLabel } = require('../lib/site/navigation')
 import Waterfall from 'vue-waterfall-plugin'
 import InfiniteLoading from 'vue-infinite-loading'
-const { clipboard } = require('electron')
+const { getPlatformApi } = require('../lib/platform/api')
 const FILM_DATA_CACHE = {} // key = site.key, value = classList; key = site.key + '@' + type.tid, value = {list, pageCount}
 const LATEST_CLASS_TID = '__latest__'
 export default {
@@ -856,7 +856,7 @@ export default {
       let videoFlag
       if (db) videoFlag = db.videoFlag
       zy.download(site.key, row.id, videoFlag).then(res => {
-        clipboard.writeText(res.downloadUrls)
+        getPlatformApi().clipboard.writeText(res.downloadUrls)
         this.$message.success(res.info)
       }).catch((err) => {
         this.$message.error(err.info)

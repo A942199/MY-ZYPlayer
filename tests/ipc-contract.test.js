@@ -41,7 +41,10 @@ async function main () {
       close: () => calls.push('close'),
       setAlwaysOnTop: value => calls.push(['top', value]),
       setBounds: bounds => calls.push(['bounds', bounds]),
-      getBounds: () => ({ x: 1, y: 2, width: 3, height: 4 })
+      getBounds: () => ({ x: 1, y: 2, width: 3, height: 4 }),
+      getOpacity: () => 0.8,
+      setOpacity: value => calls.push(['opacity', value]),
+      showEditMenu: () => calls.push('edit-menu')
     },
     clipboard: {
       readText: () => 'clip',
@@ -84,7 +87,10 @@ async function main () {
       updatePatch: payload => payload,
       secretStatus: () => ({ configured: {} }),
       updateSecrets: payload => payload,
-      clearSecrets: payload => payload
+      clearSecrets: payload => payload,
+      applyProxy: payload => calls.push(['proxy', payload]),
+      getCacheSize: () => 4096,
+      clearCache: () => calls.push('clear-cache')
     }
   }
 
@@ -117,6 +123,19 @@ async function main () {
     /http/i
   )
   assert.strictEqual(calls.some(item => Array.isArray(item) && item[0] === 'open'), false)
+
+  assert.strictEqual(await ipcMain.handlers.get('app:window:get-opacity')(event), 0.8)
+  await ipcMain.handlers.get('app:window:set-opacity')(event, { value: 0.7 })
+  await ipcMain.handlers.get('app:window:show-edit-menu')(event)
+  await ipcMain.handlers.get('settings:apply-proxy')(event, { proxyRules: 'direct://' })
+  assert.strictEqual(await ipcMain.handlers.get('settings:get-cache-size')(event), 4096)
+  await ipcMain.handlers.get('settings:clear-cache')(event)
+  assert.deepStrictEqual(calls.slice(-4), [
+    ['opacity', 0.7],
+    'edit-menu',
+    ['proxy', 'direct://'],
+    'clear-cache'
+  ])
 
   assert.strictEqual(ipcMain.listeners.get('checkForUpdate').length, 1)
   cleanup()

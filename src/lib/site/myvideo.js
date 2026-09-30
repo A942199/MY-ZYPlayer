@@ -1,4 +1,4 @@
-const { ipcRenderer } = require('electron')
+const { getPlatformApi } = require('../platform/api')
 
 const TAB_PREFIX = 'myvideo-tab:'
 const PLAY_PREFIX = 'myvideo-play:'
@@ -72,7 +72,7 @@ function normalizeCard (card) {
 }
 
 async function runtimeCall (site, method, args) {
-  return await ipcRenderer.invoke('myvideo:call', {
+  return await getPlatformApi().sourceRuntime.call({
     source: {
       key: site.key,
       name: site.name,
@@ -213,7 +213,7 @@ async function check (site) {
 }
 
 async function loadConfig (url) {
-  return await ipcRenderer.invoke('myvideo:load-config', url)
+  return await getPlatformApi().sourceRuntime.loadConfig(url)
 }
 
 function normalizeImportedSite (site, index, configUrl) {

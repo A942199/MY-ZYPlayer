@@ -186,10 +186,7 @@ import HlsJsPlayer from 'xgplayer-hls.js'
 import mt from 'mousetrap'
 import Clickoutside from 'element-ui/src/utils/clickoutside'
 
-const { clipboard, ipcRenderer } = require('electron')
-const remote = require('@electron/remote')
-const win = remote.getCurrentWindow()
-const URL = require('url')
+const { getPlatformApi } = require('../lib/platform/api')
 const VIDEO_DETAIL_CACHE = {}
 const { choosePlaylist } = require('../lib/playback/playlist')
 const { normalizeMediaEnhancementConfig, buildMediaIdentity } = require('../lib/player/media-enhancement')
@@ -502,7 +499,7 @@ export default {
       this.video.iptv = channel
       this.name = channel.name
       const supportFormats = /\.(m3u8|flv)$/
-      const extRE = channel.url.match(supportFormats) || new URL.URL(channel.url).pathname.match(supportFormats)
+      const extRE = channel.url.match(supportFormats) || new window.URL(channel.url).pathname.match(supportFormats)
       this.getPlayer(extRE[1])
       if (extRE[1] === 'flv') this.xg.config.isLive = true
       this.xg.src = channel.url
@@ -564,7 +561,7 @@ export default {
           if (!resolved.url) throw new Error('该源未返回可播放地址')
           url = resolved.url
           if (resolved.headers && resolved.headers.length) {
-            await ipcRenderer.invoke('myvideo:set-playback-headers', {
+            await getPlatformApi().playback.setHeaders({
               url,
               headers: resolved.headers
             })
@@ -573,7 +570,7 @@ export default {
 
         const mediaPath = (() => {
           try {
-            return new URL.URL(url).pathname
+            return new window.URL(url).pathname
           } catch (e) {
             return url.split('?')[0]
           }
@@ -582,7 +579,7 @@ export default {
           const itemUrl = e.includes('$') ? e.split('$')[1] : e
           if (itemUrl.startsWith('myvideo-play:')) return false
           try {
-            return new URL.URL(itemUrl).pathname.endsWith('.m3u8')
+            return new window.URL(itemUrl).pathname.endsWith('.m3u8')
           } catch (e) {
             return itemUrl.split('?')[0].endsWith('.m3u8')
           }
@@ -844,32 +841,29 @@ export default {
       }
     },
     async miniEvent () {
-      if (!this.miniMode) this.mainWindowBounds = JSON.parse(JSON.stringify(win.getBounds()))
+      const platform = getPlatformApi()
+      const currentBounds = await platform.window.getBounds()
+      if (!this.miniMode) this.mainWindowBounds = JSON.parse(JSON.stringify(currentBounds))
       let miniWindowBounds
       await mini.find().then(res => { if (res) miniWindowBounds = res.bounds })
-      if (!miniWindowBounds) miniWindowBounds = { x: win.getPosition()[0], y: win.getPosition()[1], width: 550, height: 340 }
-      win.setBounds(miniWindowBounds)
+      if (!miniWindowBounds) miniWindowBounds = { x: currentBounds.x, y: currentBounds.y, width: 550, height: 340 }
+      await platform.window.setBounds(miniWindowBounds)
       this.xg.getCssFullscreen()
       document.querySelector('xg-btn-quitMiniMode').style.display = 'block'
       this.miniMode = true
     },
     async saveMiniWindowState () {
-      await mini.find().then(res => {
-        let doc = {}
-        doc = {
-          id: 0,
-          bounds: win.getBounds()
-        }
-        if (res) {
-          mini.update(doc)
-        } else {
-          mini.add(doc)
-        }
-      })
+      const res = await mini.find()
+      const doc = {
+        id: 0,
+        bounds: await getPlatformApi().window.getBounds()
+      }
+      if (res) await mini.update(doc)
+      else await mini.add(doc)
     },
     async exitMiniEvent () {
       await this.saveMiniWindowState()
-      win.setBounds(this.mainWindowBounds)
+      await getPlatformApi().window.setBounds(this.mainWindowBounds)
       this.xg.exitCssFullscreen()
       document.querySelector('xg-btn-quitMiniMode').style.display = 'none'
       this.miniMode = false
@@ -892,7 +886,7 @@ export default {
         playerState: this.xg.readyState || '',
         networkState: this.xg.networkState || ''
       }
-      clipboard.writeText(JSON.stringify(info, null, 4))
+      getPlatformApi().clipboard.writeText(JSON.stringify(info, null, 4))
       this.$message.success('视频信息复制成功')
     },
     closeListEvent () {
@@ -1067,7 +1061,7 @@ export default {
         this.danmakuController = new DanmakuController({
           video: videoElement,
           host: root,
-          request: payload => ipcRenderer.invoke('media-enhancement:danmaku-resolve', payload),
+          request: payload => getPlatformApi().media.resolveDanmaku(payload),
           settings: { ...this.mediaEnhancementConfig.danmaku, enabled: this.mediaEnhancementConfig.danmakuEnabled },
           onState: state => { this.danmakuState = { ...state } }
         })
@@ -1079,8 +1073,8 @@ export default {
         if (this.subtitleController) this.subtitleController.destroy()
         this.subtitleController = new SubtitleController({
           video: videoElement,
-          resolveRequest: payload => ipcRenderer.invoke('media-enhancement:subtitle-resolve', payload),
-          fetchRequest: payload => ipcRenderer.invoke('media-enhancement:subtitle-fetch', payload),
+          resolveRequest: payload => getPlatformApi().media.resolveSubtitles(payload),
+          fetchRequest: payload => getPlatformApi().media.fetchSubtitle(payload),
           onState: state => { this.subtitleState = { ...state } }
         })
       }
@@ -1257,10 +1251,10 @@ export default {
       }
       if (e === 'top') {
         if (this.appState.windowIsOnTop) {
-          win.setAlwaysOnTop(false)
+          await getPlatformApi().window.setAlwaysOnTop(false)
           this.appState.windowIsOnTop = false
         } else {
-          win.setAlwaysOnTop(true)
+          await getPlatformApi().window.setAlwaysOnTop(true)
           this.appState.windowIsOnTop = true
         }
         return false
@@ -1317,17 +1311,13 @@ export default {
         return false
       }
       if (e === 'opacityUp') {
-        const num = win.getOpacity()
-        if (num > 0.1) {
-          win.setOpacity(num - 0.1)
-        }
+        const num = await getPlatformApi().window.getOpacity()
+        if (num > 0.1) await getPlatformApi().window.setOpacity(Math.max(0.1, num - 0.1))
         return false
       }
       if (e === 'opacityDown') {
-        const num = win.getOpacity()
-        if (num < 1) {
-          win.setOpacity(num + 0.1)
-        }
+        const num = await getPlatformApi().window.getOpacity()
+        if (num < 1) await getPlatformApi().window.setOpacity(Math.min(1, num + 0.1))
         return false
       }
       if (e === 'playbackRateUp') {
@@ -1359,7 +1349,7 @@ export default {
       if (e === 'resetMini') {
         if (this.miniMode) {
           const miniWindowBounds = { x: this.mainWindowBounds.x, y: this.mainWindowBounds.y, width: 550, height: 340 }
-          win.setBounds(miniWindowBounds)
+          await getPlatformApi().window.setBounds(miniWindowBounds)
         }
         return false
       }
@@ -1623,15 +1613,12 @@ export default {
       this.getPlayer('hls', true)
     },
     minMaxEvent () {
-      win.on('minimize', () => {
-        if (this.xg && this.xg.hasStart && this.setting.pauseWhenMinimize) {
-          this.xg.pause()
-        }
+      const windowApi = getPlatformApi().window
+      this.windowMinimizeUnsubscribe = windowApi.onMinimize(() => {
+        if (this.xg && this.xg.hasStart && this.setting.pauseWhenMinimize) this.xg.pause()
       })
-      win.on('restore', () => {
-        if (this.xg && this.xg.hasStart) {
-          this.xg.play()
-        }
+      this.windowRestoreUnsubscribe = windowApi.onRestore(() => {
+        if (this.xg && this.xg.hasStart) this.xg.play()
       })
     },
     playerInstall () {
@@ -1694,6 +1681,8 @@ export default {
   },
   beforeDestroy () {
     clearInterval(this.timer)
+    if (this.windowMinimizeUnsubscribe) this.windowMinimizeUnsubscribe()
+    if (this.windowRestoreUnsubscribe) this.windowRestoreUnsubscribe()
     this.destroyMediaEnhancements()
   }
 }

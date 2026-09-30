@@ -151,7 +151,7 @@ import { mapMutations } from 'vuex'
 import { history, sites, setting } from '../lib/dexie'
 import zy from '../lib/site/tools'
 import Waterfall from 'vue-waterfall-plugin'
-const { clipboard } = require('electron')
+const { getPlatformApi } = require('../lib/platform/api')
 
 export default {
   name: 'history',
@@ -415,7 +415,7 @@ export default {
     },
     downloadEvent (e) {
       zy.download(e.site, e.ids, e.videoFlag).then(res => {
-        clipboard.writeText(res.downloadUrls)
+        getPlatformApi().clipboard.writeText(res.downloadUrls)
         this.$message.success(res.info)
       }).catch((err) => {
         this.$message.error(err.info)

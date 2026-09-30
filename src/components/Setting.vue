@@ -275,8 +275,7 @@ import { mapMutations } from 'vuex'
 import pkg from '../../package.json'
 import { setting, sites, shortcut } from '../lib/dexie'
 import { localKey as defaultShortcuts } from '../lib/dexie/initData'
-import { shell, clipboard, ipcRenderer } from 'electron'
-const remote = require('@electron/remote')
+const { getPlatformApi } = require('../lib/platform/api')
 import db from '../lib/dexie/dexie'
 import zy from '../lib/site/tools'
 const { normalizeMediaEnhancementConfig } = require('../lib/player/media-enhancement')
@@ -317,7 +316,9 @@ export default {
         html: '',
         downloaded: false,
         showDownload: true
-      }
+      },
+      updateAvailableUnsubscribe: null,
+      updateDownloadedUnsubscribe: null
     }
   },
   computed: {
@@ -341,7 +342,7 @@ export default {
   methods: {
     ...mapMutations(['SET_SETTING', 'SET_VIEW']),
     linkOpen (e) {
-      shell.openExternal(e)
+      getPlatformApi().shell.openExternal(e)
     },
     getSetting () {
       setting.find().then(async res => {
@@ -383,11 +384,9 @@ export default {
       })
     },
     async clearCache () {
-      const win = remote.getCurrentWindow()
-      const ses = win.webContents.session
-      const size = await ses.getCacheSize() / 1024 / 1024
+      const size = await getPlatformApi().settings.getCacheSize() / 1024 / 1024
       const mb = size.toFixed(2)
-      await ses.clearCache()
+      await getPlatformApi().settings.clearCache()
       this.$message.success(`清除缓存成功, 共清理 ${mb} MB`)
     },
     updateSettingEvent () {
@@ -507,12 +506,12 @@ export default {
     expShortcut () {
       const arr = [...this.shortcutList]
       const str = JSON.stringify(arr, null, 2)
-      clipboard.writeText(str)
+      getPlatformApi().clipboard.writeText(str)
       this.$message.success('已复制到剪贴板')
     },
-    impShortcut () {
+    async impShortcut () {
       try {
-        const str = clipboard.readText()
+        const str = await getPlatformApi().clipboard.readText()
         const json = JSON.parse(str)
         const rows = Array.isArray(json) ? json : [json]
         shortcut.clear().then(() => shortcut.add(rows)).then(() => {
@@ -577,8 +576,7 @@ export default {
     clearDB () {
       db.delete().then(res => {
         this.$message.success('重置成功')
-        const win = remote.getCurrentWindow()
-        win.destroy()
+        getPlatformApi().window.close()
       })
     },
     openDoc (e) {
@@ -592,12 +590,14 @@ export default {
       }
     },
     checkUpdate () {
-      ipcRenderer.send('checkForUpdate')
-      ipcRenderer.on('update-available', (e, info) => {
+      const updater = getPlatformApi().updater
+      if (this.updateAvailableUnsubscribe) this.updateAvailableUnsubscribe()
+      this.updateAvailableUnsubscribe = updater.onAvailable(info => {
         this.update.find = true
         this.update.version = info.version
         this.update.html = info.releaseNotes
       })
+      updater.check()
     },
     openUpdate () {
       this.update.show = true
@@ -607,24 +607,21 @@ export default {
     },
     startUpdate () {
       this.update.showDownload = false
-      ipcRenderer.send('downloadUpdate')
-      ipcRenderer.on('update-downloaded', () => {
+      const updater = getPlatformApi().updater
+      if (this.updateDownloadedUnsubscribe) this.updateDownloadedUnsubscribe()
+      this.updateDownloadedUnsubscribe = updater.onDownloaded(() => {
         this.update.downloaded = true
         this.$message.success('更新已下载完成！Mac用户须手动点击“安装”，其它系统会在退出后自动安装')
       })
+      updater.download()
     },
     installUpdate () {
-      ipcRenderer.send('quitAndInstall')
+      getPlatformApi().updater.install()
     },
     createContextMenu () {
-      const { Menu, MenuItem } = remote
-      const menu = new Menu()
-      menu.append(new MenuItem({ label: '快速复制', role: 'copy' }))
-      menu.append(new MenuItem({ label: '快速粘贴', role: 'paste' }))
-      menu.append(new MenuItem({ label: '编辑', role: 'editMenu' }))
       window.addEventListener('contextmenu', e => {
         e.preventDefault()
-        menu.popup(remote.getCurrentWindow())
+        getPlatformApi().window.showEditMenu()
       })
     }
   },

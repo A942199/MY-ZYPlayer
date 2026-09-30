@@ -2,9 +2,7 @@ import { sites, setting } from '../dexie'
 import axios from 'axios'
 import cheerio from 'cheerio'
 
-const remote = require('@electron/remote')
-const win = remote.getCurrentWindow()
-const session = win.webContents.session
+const { getPlatformApi } = require('../platform/api')
 const cms = require('./cms')
 const myvideo = require('./myvideo')
 
@@ -538,22 +536,16 @@ const zy = {
   isPageOver (key, tid, pageNo) {
     return myvideo.isPageOver(key, tid, pageNo)
   },
-  proxy () {
-    return new Promise((resolve, reject) => {
-      setting.find().then(db => {
-        if (db && db.proxy && db.proxy.type === 'manual') {
-          if (db.proxy.scheme && db.proxy.url && db.proxy.port) {
-            const proxyURL = db.proxy.scheme + '://' + db.proxy.url.trim() + ':' + db.proxy.port.trim()
-            session.setProxy({ proxyRules: proxyURL }).then(resolve).catch(reject)
-            return
-          }
-        } else {
-          session.setProxy({ proxyRules: 'direct://' }).then(resolve).catch(reject)
-          return
-        }
-        resolve()
-      })
-    })
+  async proxy () {
+    const db = await setting.find()
+    if (db && db.proxy && db.proxy.type === 'manual') {
+      if (db.proxy.scheme && db.proxy.url && db.proxy.port) {
+        const proxyURL = db.proxy.scheme + '://' + db.proxy.url.trim() + ':' + db.proxy.port.trim()
+        return getPlatformApi().settings.applyProxy(proxyURL)
+      }
+      return
+    }
+    return getPlatformApi().settings.applyProxy('direct://')
   }
 }
 

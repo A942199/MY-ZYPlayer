@@ -143,7 +143,7 @@
 </template>
 
 <script>
-const { ipcRenderer } = require('electron')
+const { getPlatformApi } = require('../lib/platform/api')
 const { scan } = require('../lib/douban/scanner')
 
 export default {
@@ -227,7 +227,7 @@ export default {
       this.hasMore = true
       try {
         const section = this.currentSection
-        const payload = await ipcRenderer.invoke('douban:list', {
+        const payload = await getPlatformApi().douban.list({
           kind: section.kind,
           tag: section.tag,
           sort: this.sort,
@@ -257,7 +257,7 @@ export default {
       this.loadingMore = true
       try {
         const section = this.currentSection
-        const payload = await ipcRenderer.invoke('douban:list', {
+        const payload = await getPlatformApi().douban.list({
           kind: section.kind,
           tag: section.tag,
           sort: this.sort,
@@ -305,7 +305,7 @@ export default {
       this.$set(item, '_coverProxyLoading', true)
       this.$set(item, '_coverProxyTried', true)
       try {
-        const payload = await ipcRenderer.invoke('douban:image', { url: item.cover })
+        const payload = await getPlatformApi().douban.image({ url: item.cover })
         if (payload && payload.dataUrl) this.$set(item, 'coverData', payload.dataUrl)
       } catch (error) {
         // Keep the card usable even when an individual poster fails.
@@ -358,7 +358,7 @@ export default {
       this.loading = true
       this.error = ''
       try {
-        const payload = await ipcRenderer.invoke('douban:search', { text: this.searchText, japanOnly: true })
+        const payload = await getPlatformApi().douban.search({ text: this.searchText, japanOnly: true })
         this.list = payload.list || []
         this.searchMode = true
         this.hydrateCovers(this.list)
@@ -391,7 +391,7 @@ export default {
 
       let identity = { ...item }
       try {
-        const enriched = await ipcRenderer.invoke('douban:detail', item)
+        const enriched = await getPlatformApi().douban.detail(item)
         if (generation !== this.selectionGeneration) return
         identity = { ...item, ...enriched }
         if (enriched && enriched.detailStatus && enriched.detailStatus !== 'full') {

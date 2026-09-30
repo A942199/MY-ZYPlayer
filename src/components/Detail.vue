@@ -65,7 +65,7 @@
 import { mapMutations } from 'vuex'
 import zy from '../lib/site/tools'
 import { star, history } from '../lib/dexie'
-const { clipboard } = require('electron')
+const { getPlatformApi } = require('../lib/platform/api')
 export default {
   name: 'detail',
   data () {
@@ -183,7 +183,7 @@ export default {
     },
     downloadEvent () {
       zy.download(this.detail.key, this.info.id, this.videoFlag).then(res => {
-        clipboard.writeText(res.downloadUrls)
+        getPlatformApi().clipboard.writeText(res.downloadUrls)
         this.$message.success(res.info)
       }).catch((err) => {
         this.$message.error(err.info)
@@ -193,8 +193,7 @@ export default {
       const name = this.info.name.trim()
       const year = this.info.year
       zy.doubanLink(name, year).then(link => {
-        const { shell } = require('electron')
-        shell.openExternal(link)
+        getPlatformApi().shell.openExternal(link)
       })
     },
     async getDoubanRate () {

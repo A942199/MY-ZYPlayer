@@ -177,7 +177,7 @@ import { history, star, sites, setting } from '../lib/dexie'
 import zy from '../lib/site/tools'
 import Sortable from 'sortablejs'
 import Waterfall from 'vue-waterfall-plugin'
-const { clipboard } = require('electron')
+const { getPlatformApi } = require('../lib/platform/api')
 export default {
   name: 'star',
   data () {
@@ -451,7 +451,7 @@ export default {
       let videoFlag
       if (db) videoFlag = db.videoFlag
       zy.download(e.key, e.ids, videoFlag).then(res => {
-        clipboard.writeText(res.downloadUrls)
+        getPlatformApi().clipboard.writeText(res.downloadUrls)
         this.$message.success(res.info)
       }).catch((err) => {
         this.$message.error(err.info)

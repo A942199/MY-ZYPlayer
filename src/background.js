@@ -1,6 +1,6 @@
 'use strict'
 
-import { app, protocol, BrowserWindow, globalShortcut, ipcMain, shell, clipboard } from 'electron'
+import { app, protocol, BrowserWindow, globalShortcut, ipcMain, shell, clipboard, Menu } from 'electron'
 import installExtension, { VUEJS_DEVTOOLS } from 'electron-devtools-installer'
 import { initUpdater, updaterService } from './lib/update/update'
 const { applyPlaybackHeaders, callMyVideo, loadMyVideoConfig, clearMyVideoRuntimes, setPlaybackHeaders } = require('./main/myvideo/runtime')
@@ -10,7 +10,6 @@ const { startLocalDanmuApi, stopLocalDanmuApi } = require('./main/media-enhancem
 const path = require('path')
 const { createMainWindowWebPreferences } = require('./main/security/window-policy')
 const { registerAppIpc } = require('./main/ipc/app-ipc')
-require('@electron/remote/main').initialize()
 
 const isDevelopment = process.env.NODE_ENV !== 'production'
 
@@ -36,7 +35,18 @@ registerAppIpc({
       close: () => requireMainWindow().destroy(),
       setAlwaysOnTop: value => requireMainWindow().setAlwaysOnTop(value),
       setBounds: bounds => requireMainWindow().setBounds(bounds),
-      getBounds: () => requireMainWindow().getBounds()
+      getBounds: () => requireMainWindow().getBounds(),
+      getOpacity: () => requireMainWindow().getOpacity(),
+      setOpacity: value => requireMainWindow().setOpacity(value),
+      showEditMenu: () => {
+        const menu = Menu.buildFromTemplate([
+          { label: '快速复制', role: 'copy' },
+          { label: '快速粘贴', role: 'paste' },
+          { label: '编辑', role: 'editMenu' }
+        ])
+        menu.popup({ window: requireMainWindow() })
+        return true
+      }
     },
     clipboard: {
       readText: () => clipboard.readText(),
@@ -66,6 +76,11 @@ registerAppIpc({
       resolveDanmaku,
       resolveSubtitles,
       fetchSubtitle
+    },
+    settings: {
+      applyProxy: proxyRules => requireMainWindow().webContents.session.setProxy({ proxyRules }),
+      getCacheSize: () => requireMainWindow().webContents.session.getCacheSize(),
+      clearCache: () => requireMainWindow().webContents.session.clearCache()
     }
   }
 })
@@ -108,12 +123,9 @@ function createWindow () {
     frame: false,
     resizable: true,
     webPreferences: {
-      ...createMainWindowWebPreferences(),
-      // Temporary compatibility overrides until renderer preload migration is complete.
-      webSecurity: false,
-      enableRemoteModule: true,
-      nodeIntegration: true,
-      contextIsolation: false
+      ...createMainWindowWebPreferences(path.join(__dirname, 'preload.js')),
+      // Keep only the legacy network compatibility override until scoped playback policy lands.
+      webSecurity: false
     }
   })
 
@@ -130,8 +142,6 @@ function createWindow () {
   const filter = {
     urls: ['http://*/*', 'https://*/*']
   }
-  require("@electron/remote/main").enable(win.webContents)
-
   // Keep remote content from replacing the privileged application document.
   win.webContents.on('will-navigate', (event, targetUrl) => {
     let allowed = false
@@ -156,6 +166,13 @@ function createWindow () {
       cancel: false,
       requestHeaders: details.requestHeaders
     })
+  })
+
+  win.on('minimize', () => {
+    if (win && !win.isDestroyed()) win.webContents.send('app:window:minimized')
+  })
+  win.on('restore', () => {
+    if (win && !win.isDestroyed()) win.webContents.send('app:window:restored')
   })
 
   initUpdater(win)

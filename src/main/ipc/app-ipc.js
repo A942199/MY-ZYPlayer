@@ -70,6 +70,15 @@ function registerAppIpc ({ ipcMain, getMainWindow, services = {} }) {
     return payload.bounds
   }, 'window', 'setBounds')
   handle('app:window:get-bounds', null, 'window', 'getBounds')
+  handle('app:window:get-opacity', null, 'window', 'getOpacity')
+  handle('app:window:set-opacity', payload => {
+    assertAllowedKeys(payload, ['value'])
+    if (typeof payload.value !== 'number' || !Number.isFinite(payload.value) || payload.value < 0.1 || payload.value > 1) {
+      throw new TypeError('value must be a number between 0.1 and 1')
+    }
+    return payload.value
+  }, 'window', 'setOpacity')
+  handle('app:window:show-edit-menu', null, 'window', 'showEditMenu')
 
   handle('app:clipboard:read-text', null, 'clipboard', 'readText')
   handle('app:clipboard:write-text', payload => {
@@ -116,6 +125,13 @@ function registerAppIpc ({ ipcMain, getMainWindow, services = {} }) {
   handle('settings:secret-status', null, 'settings', 'secretStatus')
   handle('settings:update-secrets', plainKeys(['patch']), 'settings', 'updateSecrets')
   handle('settings:clear-secrets', plainKeys(['keys']), 'settings', 'clearSecrets')
+  handle('settings:apply-proxy', payload => {
+    assertAllowedKeys(payload, ['proxyRules'])
+    if (typeof payload.proxyRules !== 'string' || payload.proxyRules.length > 2048) throw new TypeError('proxyRules must be a string')
+    return payload.proxyRules
+  }, 'settings', 'applyProxy')
+  handle('settings:get-cache-size', null, 'settings', 'getCacheSize')
+  handle('settings:clear-cache', null, 'settings', 'clearCache')
 
   return () => {
     handledChannels.forEach(channel => {

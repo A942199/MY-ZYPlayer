@@ -51,6 +51,13 @@ assert.strictEqual(exposedName, 'myzy')
 assert.deepStrictEqual(Object.keys(exposedApi).sort(), expectedDomains)
 assert.strictEqual(Object.prototype.hasOwnProperty.call(exposedApi, 'invoke'), false)
 
+for (const method of ['getOpacity', 'setOpacity', 'onMinimize', 'onRestore', 'showEditMenu']) {
+  assert.strictEqual(typeof exposedApi.window[method], 'function', 'missing window.' + method)
+}
+for (const method of ['applyProxy', 'getCacheSize', 'clearCache']) {
+  assert.strictEqual(typeof exposedApi.settings[method], 'function', 'missing settings.' + method)
+}
+
 const { getPlatformApi } = require('../src/lib/platform/api')
 const previousWindow = global.window
 

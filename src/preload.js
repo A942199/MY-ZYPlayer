@@ -24,7 +24,12 @@ const api = Object.freeze({
     close: () => invoke('app:window:close'),
     setAlwaysOnTop: value => invoke('app:window:set-always-on-top', { value }),
     setBounds: bounds => invoke('app:window:set-bounds', { bounds }),
-    getBounds: () => invoke('app:window:get-bounds')
+    getBounds: () => invoke('app:window:get-bounds'),
+    getOpacity: () => invoke('app:window:get-opacity'),
+    setOpacity: value => invoke('app:window:set-opacity', { value }),
+    showEditMenu: () => invoke('app:window:show-edit-menu'),
+    onMinimize: listener => subscribe('app:window:minimized', listener),
+    onRestore: listener => subscribe('app:window:restored', listener)
   }),
   clipboard: Object.freeze({
     readText: () => invoke('app:clipboard:read-text'),
@@ -66,7 +71,10 @@ const api = Object.freeze({
     updatePatch: patch => invoke('settings:update-patch', { patch }),
     secretStatus: () => invoke('settings:secret-status'),
     updateSecrets: patch => invoke('settings:update-secrets', { patch }),
-    clearSecrets: keys => invoke('settings:clear-secrets', { keys })
+    clearSecrets: keys => invoke('settings:clear-secrets', { keys }),
+    applyProxy: proxyRules => invoke('settings:apply-proxy', { proxyRules }),
+    getCacheSize: () => invoke('settings:get-cache-size'),
+    clearCache: () => invoke('settings:clear-cache')
   })
 })
 

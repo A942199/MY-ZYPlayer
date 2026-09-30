@@ -15,7 +15,7 @@
   </div>
 </template>
 <script>
-const remote = require('@electron/remote')
+const { getPlatformApi } = require('../lib/platform/api')
 export default {
   name: 'frame',
   computed: {
@@ -30,19 +30,13 @@ export default {
   },
   methods: {
     frameClickEvent (e) {
-      const win = remote.getCurrentWindow()
-      if (e === 'min') {
-        win.minimize()
-      }
-      if (e === 'max') {
-        win.isMaximized() ? win.unmaximize() : win.maximize()
-      }
-      if (e === 'close') {
-        win.destroy()
-      }
+      const platform = getPlatformApi()
+      if (e === 'min') platform.window.minimize()
+      if (e === 'max') platform.window.maximizeToggle()
+      if (e === 'close') platform.window.close()
       if (e === 'top') {
         this.appState.windowIsOnTop = !this.appState.windowIsOnTop
-        win.setAlwaysOnTop(this.appState.windowIsOnTop)
+        platform.window.setAlwaysOnTop(this.appState.windowIsOnTop)
       }
     }
   }
