@@ -1,14 +1,20 @@
 const fs = require('fs')
 const path = require('path')
 const axios = require('axios')
+const crypto = require('crypto')
 const { Worker } = require('worker_threads')
 const { URL } = require('url')
 const { createPlaybackNetworkPolicy } = require('../playback/network-policy')
+const { assertPublicHttpTarget } = require('../security/network-target')
 
 const DEFAULT_TIMEOUT = 20000
 const CALL_TIMEOUT = 30000
 const MAX_RESPONSE_BYTES = 12 * 1024 * 1024
-const DYNAMIC_CODE_FILES = new Set(['7sefun.js', 'novipnoad.js', 'saohuo.js'])
+const DYNAMIC_CODE_COMPATIBILITY = new Map([
+  ['7sefun.js', 'legacy-provider-requires-string-code-generation'],
+  ['novipnoad.js', 'legacy-provider-requires-string-code-generation'],
+  ['saohuo.js', 'legacy-provider-requires-string-code-generation']
+])
 const playbackNetworkPolicy = createPlaybackNetworkPolicy()
 
 function parseCookie (header) {
@@ -19,8 +25,15 @@ function parseCookie (header) {
 }
 
 class NativeHttpClient {
-  constructor () {
+  constructor (options = {}) {
     this.cookies = new Map()
+    this.lookup = options.lookup
+    this.allowPrivateNetwork = options.allowPrivateNetwork === true
+    this.assertTarget = options.assertTarget || (url => assertPublicHttpTarget(url, {
+      lookup: this.lookup,
+      allowPrivateNetwork: this.allowPrivateNetwork
+    }))
+    this.requestImpl = options.requestImpl || axios
   }
 
   cookieHeader (url) {
@@ -43,40 +56,61 @@ class NativeHttpClient {
   }
 
   async request (method, url, body, options = {}) {
-    const headers = { ...(options.headers || {}) }
-    if (options.credentials === 'include' || options.withCredentials) {
-      const cookie = this.cookieHeader(url)
-      if (cookie && !headers.Cookie && !headers.cookie) headers.Cookie = cookie
-    }
-    const response = await axios({
-      method,
-      url,
-      data: body,
-      headers,
-      timeout: Number(options.timeout) || DEFAULT_TIMEOUT,
-      maxRedirects: options.maxRedirects === undefined ? 8 : options.maxRedirects,
-      maxContentLength: Number(options.maxBytes) || MAX_RESPONSE_BYTES,
-      maxBodyLength: Number(options.maxBytes) || MAX_RESPONSE_BYTES,
-      responseType: options.responseType || 'text',
-      transformResponse: [data => data],
-      validateStatus: () => true
-    })
-    this.storeCookies(url, response.headers)
-    let data = response.data
-    if (typeof data === 'string') {
-      const trimmed = data.trim()
-      const contentType = String((response.headers && response.headers['content-type']) || '')
-      if (trimmed && (contentType.includes('json') || trimmed.startsWith('{') || trimmed.startsWith('['))) {
-        try {
-          data = JSON.parse(trimmed)
-        } catch (e) {}
+    let currentUrl = (await this.assertTarget(url)).toString()
+    let currentMethod = String(method || 'GET').toUpperCase()
+    let currentBody = body
+    const maxRedirects = options.maxRedirects === undefined ? 8 : Math.max(0, Number(options.maxRedirects) || 0)
+
+    for (let redirectCount = 0; ; redirectCount++) {
+      const headers = { ...(options.headers || {}) }
+      if (options.credentials === 'include' || options.withCredentials) {
+        const cookie = this.cookieHeader(currentUrl)
+        if (cookie && !headers.Cookie && !headers.cookie) headers.Cookie = cookie
       }
-    }
-    return {
-      status: response.status,
-      data,
-      headers: response.headers,
-      url: (response.request && response.request.res && response.request.res.responseUrl) || url
+      const response = await this.requestImpl({
+        method: currentMethod,
+        url: currentUrl,
+        data: currentBody,
+        headers,
+        timeout: Number(options.timeout) || DEFAULT_TIMEOUT,
+        maxRedirects: 0,
+        maxContentLength: Number(options.maxBytes) || MAX_RESPONSE_BYTES,
+        maxBodyLength: Number(options.maxBytes) || MAX_RESPONSE_BYTES,
+        responseType: options.responseType || 'text',
+        transformResponse: [data => data],
+        validateStatus: () => true
+      })
+      this.storeCookies(currentUrl, response.headers)
+
+      const location = response.headers && (response.headers.location || response.headers.Location)
+      const redirecting = [301, 302, 303, 307, 308].includes(response.status) && location
+      if (redirecting) {
+        if (redirectCount >= maxRedirects) throw new Error('Too many redirects')
+        const next = new URL(Array.isArray(location) ? location[0] : location, currentUrl)
+        currentUrl = (await this.assertTarget(next.toString())).toString()
+        if (response.status === 303 || ((response.status === 301 || response.status === 302) && currentMethod === 'POST')) {
+          currentMethod = 'GET'
+          currentBody = undefined
+        }
+        continue
+      }
+
+      let data = response.data
+      if (typeof data === 'string') {
+        const trimmed = data.trim()
+        const contentType = String((response.headers && response.headers['content-type']) || '')
+        if (trimmed && (contentType.includes('json') || trimmed.startsWith('{') || trimmed.startsWith('['))) {
+          try {
+            data = JSON.parse(trimmed)
+          } catch (e) {}
+        }
+      }
+      return {
+        status: response.status,
+        data,
+        headers: response.headers,
+        url: currentUrl
+      }
     }
   }
 
@@ -119,14 +153,34 @@ function getModulePath () {
   return path.resolve(__dirname, '../../../node_modules')
 }
 
-function allowDynamicCode (source) {
-  if (source.allowDynamicCode === true) return true
+function dynamicCodePolicy (source = {}) {
   try {
     const filename = new URL(source.ext).pathname.split('/').pop()
-    return DYNAMIC_CODE_FILES.has(filename)
-  } catch (e) {
-    return false
+    const reason = DYNAMIC_CODE_COMPATIBILITY.get(filename) || ''
+    return { enabled: Boolean(reason), reason }
+  } catch (error) {
+    return { enabled: false, reason: '' }
   }
+}
+
+function sha256Text (value) {
+  return crypto.createHash('sha256').update(String(value || ''), 'utf8').digest('hex')
+}
+
+function runtimeIdentity (source = {}, scriptHash = '') {
+  const identity = String(source.key || source.api || source.ext || '')
+  const config = source.config && typeof source.config === 'object'
+    ? JSON.stringify(source.config)
+    : String(source.config || '')
+  const expectedHash = String(source.sha256 || (source.integrity && source.integrity.sha256) || '').toLowerCase()
+  return [
+    identity,
+    String(source.ext || ''),
+    String(source.network || 'native'),
+    config,
+    expectedHash,
+    String(scriptHash || '').toLowerCase()
+  ].join('\u001f')
 }
 
 function normalizeHeaders (headers) {
@@ -142,6 +196,15 @@ class SourceWorker {
   constructor (source, code, options = {}) {
     this.source = source
     this.timeout = options.callTimeout || CALL_TIMEOUT
+    const policy = dynamicCodePolicy(source)
+    this.diagnostics = Object.freeze({
+      sourceKey: String(source.key || source.api || ''),
+      sourceUrl: String(source.ext || ''),
+      scriptHash: String(options.scriptHash || sha256Text(code)),
+      loadedAt: Number(options.loadedAt || Date.now()),
+      dynamicCode: policy.enabled,
+      dynamicCodeReason: policy.reason
+    })
     this.nextId = 1
     this.pending = new Map()
     this.dead = false
@@ -152,7 +215,8 @@ class SourceWorker {
         source,
         code,
         modulePath: options.modulePath || getModulePath(),
-        allowDynamicCode: allowDynamicCode(source)
+        allowDynamicCode: policy.enabled,
+        integrity: this.diagnostics
       },
       resourceLimits: {
         maxOldGenerationSizeMb: 96,
@@ -227,18 +291,24 @@ class SourceWorker {
 class RuntimeManager {
   constructor (options = {}) {
     this.runtimes = new Map()
-    this.loader = options.loader || new NativeHttpClient()
+    this.activeRuntimeKeys = new Map()
+    this.lookup = options.lookup
+    this.allowPrivateNetwork = options.allowPrivateNetwork === true
+    this.loader = options.loader || new NativeHttpClient({
+      lookup: this.lookup,
+      allowPrivateNetwork: this.allowPrivateNetwork
+    })
     this.modulePath = options.modulePath
     this.workerPath = options.workerPath
     this.callTimeout = options.callTimeout
   }
 
-  key (source) {
-    const identity = String(source.key || source.api || source.ext || '')
-    const config = source.config && typeof source.config === 'object'
-      ? JSON.stringify(source.config)
-      : String(source.config || '')
-    return [identity, String(source.ext || ''), String(source.network || 'native'), config].join('\u001f')
+  baseKey (source) {
+    return runtimeIdentity(source, '')
+  }
+
+  key (source, scriptHash = '') {
+    return runtimeIdentity(source, scriptHash)
   }
 
   async runtimeFor (source) {
@@ -247,20 +317,50 @@ class RuntimeManager {
       error.code = 'MYVIDEO_WEBVIEW_REQUIRED'
       throw error
     }
-    const key = this.key(source)
-    const existing = this.runtimes.get(key)
+    const baseKey = this.baseKey(source)
+    const activeKey = this.activeRuntimeKeys.get(baseKey)
+    const existing = activeKey ? this.runtimes.get(activeKey) : null
     if (existing && !existing.dead) return existing
-    if (existing) this.runtimes.delete(key)
+    if (activeKey) {
+      this.runtimes.delete(activeKey)
+      this.activeRuntimeKeys.delete(baseKey)
+    }
+
+    await assertPublicHttpTarget(source.ext, {
+      lookup: this.lookup,
+      allowPrivateNetwork: this.allowPrivateNetwork
+    })
     const response = await this.loader.get(source.ext, { timeout: DEFAULT_TIMEOUT })
     if (response.status < 200 || response.status >= 300) {
       throw new Error('Unable to load source script, HTTP ' + response.status)
     }
-    const runtime = new SourceWorker(source, String(response.data || ''), {
+    await assertPublicHttpTarget(response.url || source.ext, {
+      lookup: this.lookup,
+      allowPrivateNetwork: this.allowPrivateNetwork
+    })
+
+    const code = String(response.data || '')
+    const scriptHash = sha256Text(code)
+    const expectedHash = String(source.sha256 || (source.integrity && source.integrity.sha256) || '').trim().toLowerCase()
+    if (expectedHash && !/^[a-f0-9]{64}$/.test(expectedHash)) throw new Error('Invalid source SHA-256 pin')
+    if (expectedHash && expectedHash !== scriptHash) {
+      const error = new Error('Source SHA-256 mismatch')
+      error.code = 'MYVIDEO_INTEGRITY'
+      throw error
+    }
+
+    const key = this.key(source, scriptHash)
+    const runtime = new SourceWorker(source, code, {
       modulePath: this.modulePath,
       workerPath: this.workerPath,
-      callTimeout: this.callTimeout
+      callTimeout: this.callTimeout,
+      scriptHash,
+      loadedAt: Date.now()
     })
+    runtime.runtimeKey = key
+    runtime.baseKey = baseKey
     this.runtimes.set(key, runtime)
+    this.activeRuntimeKeys.set(baseKey, key)
     return runtime
   }
 
@@ -269,7 +369,10 @@ class RuntimeManager {
     try {
       return await runtime.call(method, args)
     } catch (error) {
-      if (runtime.dead) this.runtimes.delete(this.key(source))
+      if (runtime.dead) {
+        this.runtimes.delete(runtime.runtimeKey)
+        this.activeRuntimeKeys.delete(runtime.baseKey)
+      }
       throw error
     }
   }
@@ -277,10 +380,19 @@ class RuntimeManager {
   clear () {
     for (const runtime of this.runtimes.values()) runtime.terminate()
     this.runtimes.clear()
+    this.activeRuntimeKeys.clear()
   }
 
   async loadConfig (url) {
+    await assertPublicHttpTarget(url, {
+      lookup: this.lookup,
+      allowPrivateNetwork: this.allowPrivateNetwork
+    })
     const response = await this.loader.get(url, { timeout: DEFAULT_TIMEOUT })
+    await assertPublicHttpTarget(response.url || url, {
+      lookup: this.lookup,
+      allowPrivateNetwork: this.allowPrivateNetwork
+    })
     if (response.status < 200 || response.status >= 300) {
       throw new Error('Unable to load source config, HTTP ' + response.status)
     }
@@ -311,7 +423,7 @@ function applyPlaybackResponseHeaders (url, responseHeaders) {
   return playbackNetworkPolicy.applyResponse(url, responseHeaders)
 }
 
-const manager = new RuntimeManager()
+const manager = new RuntimeManager({ allowPrivateNetwork: process.env.MY_ZYPLAYER_ALLOW_PRIVATE_SOURCE_TESTS === '1' })
 
 async function callMyVideo (payload = {}) {
   const source = payload.source || {}
@@ -347,6 +459,9 @@ module.exports = {
   NativeHttpClient,
   SourceWorker,
   RuntimeManager,
+  dynamicCodePolicy,
+  runtimeIdentity,
+  sha256Text,
   callMyVideo,
   loadMyVideoConfig,
   clearMyVideoRuntimes,

@@ -376,6 +376,7 @@ const sandbox = {
   $cache: storageApi(cache),
   $storage: storageApi(cache),
   $config_str: JSON.stringify(source.config || {}),
+  $source_integrity: Object.freeze({ ...(workerData.integrity || {}) }),
   $html: htmlHelpers(),
   $print: (...values) => logs.log(...values),
   $utils: {
