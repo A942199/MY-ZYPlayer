@@ -8,6 +8,7 @@ const { registerDoubanIpc } = require('./main/douban/runtime')
 const { registerMediaEnhancementIpc } = require('./main/media-enhancement/runtime')
 const { startLocalDanmuApi, stopLocalDanmuApi } = require('./main/media-enhancement/local-danmu-runtime')
 const path = require('path')
+const { createMainWindowWebPreferences } = require('./main/security/window-policy')
 require('@electron/remote/main').initialize()
 
 const isDevelopment = process.env.NODE_ENV !== 'production'
@@ -54,13 +55,12 @@ function createWindow () {
     frame: false,
     resizable: true,
     webPreferences: {
+      ...createMainWindowWebPreferences(),
+      // Temporary compatibility overrides until renderer preload migration is complete.
       webSecurity: false,
       enableRemoteModule: true,
       nodeIntegration: true,
-      contextIsolation: false,
-      nodeIntegrationInSubFrames: false,
-      webviewTag: false,
-      allowRunningInsecureContent: false
+      contextIsolation: false
     }
   })
 
