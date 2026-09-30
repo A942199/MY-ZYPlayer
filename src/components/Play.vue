@@ -545,6 +545,10 @@ export default {
       this.isStar = false
       this.exportablePlaylist = false
       this.fetchPlaylist().then(async (fullList) => {
+        if (this.playbackHeaderScopeId) {
+          await getPlatformApi().playback.clearHeaders({ scopeId: this.playbackHeaderScopeId })
+          this.playbackHeaderScopeId = ''
+        }
         const selection = choosePlaylist(fullList, this.video.info.videoFlag, index)
         const playlist = selection.playlist
         index = selection.index
@@ -561,10 +565,11 @@ export default {
           if (!resolved.url) throw new Error('该源未返回可播放地址')
           url = resolved.url
           if (resolved.headers && resolved.headers.length) {
-            await getPlatformApi().playback.setHeaders({
+            const playbackScope = await getPlatformApi().playback.setHeaders({
               url,
               headers: resolved.headers
             })
+            this.playbackHeaderScopeId = playbackScope && playbackScope.scopeId ? playbackScope.scopeId : ''
           }
         }
 
@@ -1683,6 +1688,10 @@ export default {
     clearInterval(this.timer)
     if (this.windowMinimizeUnsubscribe) this.windowMinimizeUnsubscribe()
     if (this.windowRestoreUnsubscribe) this.windowRestoreUnsubscribe()
+    if (this.playbackHeaderScopeId) {
+      getPlatformApi().playback.clearHeaders({ scopeId: this.playbackHeaderScopeId })
+      this.playbackHeaderScopeId = ''
+    }
     this.destroyMediaEnhancements()
   }
 }

@@ -113,8 +113,8 @@ function registerAppIpc ({ ipcMain, getMainWindow, services = {} }) {
   }, 'sourceRuntime', 'call')
   handle('myvideo:load-config', url => assertHttpUrl(url, 'url').toString(), 'sourceRuntime', 'loadConfig')
   handle('myvideo:clear-runtimes', null, 'sourceRuntime', 'clear')
-  handle('myvideo:set-playback-headers', plainKeys(['url', 'headers']), 'playback', 'setHeaders')
-  handle('playback:clear-headers', payload => payload == null ? {} : plain(payload), 'playback', 'clearHeaders')
+  handle('myvideo:set-playback-headers', plainKeys(['url', 'headers', 'pathPrefix']), 'playback', 'setHeaders')
+  handle('playback:clear-headers', plainKeys(['scopeId']), 'playback', 'clearHeaders')
 
   handle('media-enhancement:danmaku-resolve', plain, 'media', 'resolveDanmaku')
   handle('media-enhancement:subtitle-resolve', plain, 'media', 'resolveSubtitles')

@@ -3,7 +3,7 @@
 import { app, protocol, BrowserWindow, globalShortcut, ipcMain, shell, clipboard, Menu } from 'electron'
 import installExtension, { VUEJS_DEVTOOLS } from 'electron-devtools-installer'
 import { initUpdater, updaterService } from './lib/update/update'
-const { applyPlaybackHeaders, callMyVideo, loadMyVideoConfig, clearMyVideoRuntimes, setPlaybackHeaders } = require('./main/myvideo/runtime')
+const { applyPlaybackHeaders, applyPlaybackResponseHeaders, callMyVideo, loadMyVideoConfig, clearMyVideoRuntimes, setPlaybackHeaders, clearPlaybackHeaderScope } = require('./main/myvideo/runtime')
 const { listSubjects, searchSubjects, subjectDetail, fetchImageData, probeUrl } = require('./main/douban/runtime')
 const { resolveDanmaku, resolveSubtitles, fetchSubtitle, initializeMediaEnhancementRuntime } = require('./main/media-enhancement/runtime')
 const { startLocalDanmuApi, stopLocalDanmuApi } = require('./main/media-enhancement/local-danmu-runtime')
@@ -70,7 +70,7 @@ registerAppIpc({
     },
     playback: {
       setHeaders: setPlaybackHeaders,
-      clearHeaders: () => false
+      clearHeaders: clearPlaybackHeaderScope
     },
     media: {
       resolveDanmaku,
@@ -156,15 +156,15 @@ function createWindow () {
   })
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   win.webContents.session.webRequest.onBeforeSendHeaders(filter, (details, callback) => {
-    const url = new URL(details.url)
-    details.requestHeaders.Origin = url.origin
-    if (!details.url.includes('//localhost') && details.requestHeaders.Referer && details.requestHeaders.Referer.includes('//localhost')) {
-      details.requestHeaders.Referer = url.origin
-    }
-    details.requestHeaders = applyPlaybackHeaders(details.url, details.requestHeaders)
-    callback({ // https://github.com/electron/electron/issues/23988 回调似乎无法修改headers，暂时先用index.html的meta referer policy替代
+    callback({
       cancel: false,
-      requestHeaders: details.requestHeaders
+      requestHeaders: applyPlaybackHeaders(details.url, details.requestHeaders)
+    })
+  })
+  win.webContents.session.webRequest.onHeadersReceived(filter, (details, callback) => {
+    callback({
+      cancel: false,
+      responseHeaders: applyPlaybackResponseHeaders(details.url, details.responseHeaders)
     })
   })
 

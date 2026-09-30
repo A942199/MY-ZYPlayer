@@ -3,12 +3,13 @@ const path = require('path')
 const axios = require('axios')
 const { Worker } = require('worker_threads')
 const { URL } = require('url')
+const { createPlaybackNetworkPolicy } = require('../playback/network-policy')
 
 const DEFAULT_TIMEOUT = 20000
 const CALL_TIMEOUT = 30000
 const MAX_RESPONSE_BYTES = 12 * 1024 * 1024
 const DYNAMIC_CODE_FILES = new Set(['7sefun.js', 'novipnoad.js', 'saohuo.js'])
-const playbackHeaders = new Map()
+const playbackNetworkPolicy = createPlaybackNetworkPolicy()
 
 function parseCookie (header) {
   const first = String(header || '').split(';', 1)[0]
@@ -288,30 +289,26 @@ class RuntimeManager {
   }
 }
 
-function registerPlaybackHeaders (url, headers) {
+function registerPlaybackHeaders (url, headers, pathPrefix) {
   const normalized = normalizeHeaders(headers)
-  if (!url || !Object.keys(normalized).length) return
+  if (!url || !Object.keys(normalized).length) return ''
   try {
-    playbackHeaders.set(new URL(url).origin, {
-      headers: normalized,
-      expiresAt: Date.now() + (10 * 60 * 1000)
-    })
-  } catch (e) {}
+    return playbackNetworkPolicy.registerScope({ url, pathPrefix, headers: normalized })
+  } catch (error) {
+    return ''
+  }
+}
+
+function clearPlaybackHeaders (scopeId) {
+  return playbackNetworkPolicy.clearScope(scopeId)
 }
 
 function applyPlaybackHeaders (url, requestHeaders) {
-  try {
-    const origin = new URL(url).origin
-    const rule = playbackHeaders.get(origin)
-    if (!rule) return requestHeaders
-    if (rule.expiresAt < Date.now()) {
-      playbackHeaders.delete(origin)
-      return requestHeaders
-    }
-    return { ...(requestHeaders || {}), ...rule.headers }
-  } catch (e) {
-    return requestHeaders
-  }
+  return playbackNetworkPolicy.applyRequest(url, requestHeaders)
+}
+
+function applyPlaybackResponseHeaders (url, responseHeaders) {
+  return playbackNetworkPolicy.applyResponse(url, responseHeaders)
 }
 
 const manager = new RuntimeManager()
@@ -331,8 +328,12 @@ function clearMyVideoRuntimes () {
 }
 
 function setPlaybackHeaders (payload = {}) {
-  registerPlaybackHeaders(payload.url, payload.headers)
-  return true
+  const scopeId = registerPlaybackHeaders(payload.url, payload.headers, payload.pathPrefix)
+  return { scopeId }
+}
+
+function clearPlaybackHeaderScope (payload = {}) {
+  return clearPlaybackHeaders(payload.scopeId)
 }
 
 function registerMyVideoIpc (ipcMain) {
@@ -350,7 +351,10 @@ module.exports = {
   loadMyVideoConfig,
   clearMyVideoRuntimes,
   setPlaybackHeaders,
+  clearPlaybackHeaderScope,
   registerMyVideoIpc,
   registerPlaybackHeaders,
-  applyPlaybackHeaders
+  clearPlaybackHeaders,
+  applyPlaybackHeaders,
+  applyPlaybackResponseHeaders
 }
