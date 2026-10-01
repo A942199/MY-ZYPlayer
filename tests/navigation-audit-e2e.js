@@ -125,8 +125,20 @@ async function main () {
     console.log(JSON.stringify({ navigation: 'passed', items: cases.map(x => x[0]) }))
   } finally {
     if (cdp && cdp.socket) cdp.socket.close()
-    child.kill()
-    fs.rmSync(profile, { recursive: true, force: true })
+    if (!child.killed) child.kill()
+    await Promise.race([
+      new Promise(resolve => child.once('exit', resolve)),
+      sleep(1500)
+    ])
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        fs.rmSync(profile, { recursive: true, force: true })
+        break
+      } catch (error) {
+        if (attempt === 4) throw error
+        await sleep(250)
+      }
+    }
   }
 }
 

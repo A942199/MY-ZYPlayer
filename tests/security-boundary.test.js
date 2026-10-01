@@ -26,4 +26,13 @@ assert.deepStrictEqual(MAIN_WINDOW_SECURITY_INVARIANTS, {
   webSecurity: true
 })
 
+const fs = require('fs')
+const path = require('path')
+const background = fs.readFileSync(path.resolve(__dirname, '../src/background.js'), 'utf8')
+const packageJson = require('../package.json')
+
+assert.strictEqual(background.includes('OutOfBlinkCors'), false)
+assert.strictEqual(background.includes('webSecurity: false'), false)
+assert.strictEqual(Boolean(packageJson.dependencies && packageJson.dependencies['@electron/remote']), false)
+
 console.log('Electron security boundary policy tests passed')

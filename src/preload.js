@@ -52,6 +52,9 @@ const api = Object.freeze({
     image: payload => invoke('douban:image', payload),
     probe: payload => invoke('douban:probe', payload)
   }),
+  network: Object.freeze({
+    get: payload => invoke('network:get', payload)
+  }),
   sourceRuntime: Object.freeze({
     call: payload => invoke('myvideo:call', payload),
     loadConfig: url => invoke('myvideo:load-config', url),

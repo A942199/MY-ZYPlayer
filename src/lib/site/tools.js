@@ -1,69 +1,19 @@
 import { sites, setting } from '../dexie'
-import axios from 'axios'
 import cheerio from 'cheerio'
 
 const { getPlatformApi } = require('../platform/api')
 const cms = require('./cms')
 const myvideo = require('./myvideo')
 
-// 取消axios请求  浅析cancelToken https://juejin.cn/post/6844904168277147661 https://masteringjs.io/tutorials/axios/cancel
-// const source = axios.CancelToken.source()
-// const cancelToken = source.token
-
-// 请求超时时限
-// axios.defaults.timeout = 10000 // 可能使用代理，增长超时
 const TIMEOUT = 20000
 
-// 重试次数，共请求2次
-axios.defaults.retry = 1
-
-// 请求的间隙
-axios.defaults.retryDelay = 1000
-
-// 使用请求拦截器动态调整超时
-axios.interceptors.request.use(function (config) {
-  if (config.__retryCount === undefined) {
-    config.timeout = TIMEOUT
-  } else {
-    config.timeout = TIMEOUT * (config.__retryCount + 1)
-  }
-  return config
-}, function (err) {
-  return Promise.reject(err)
-})
-
-// 添加响应拦截器
-axios.interceptors.response.use(function (response) {
-  return response
-}, function (err) { // 请求错误时做些事
-  // 请求超时的之后，抛出 err.code = ECONNABORTED的错误..错误信息是 timeout of  xxx ms exceeded
-  if (err.code === 'ECONNABORTED' && err.message.indexOf('timeout') !== -1) {
-    const config = err.config
-    config.__retryCount = config.__retryCount || 0
-
-    if (config.__retryCount >= config.retry) {
-      err.message = '多次请求均超时'
-      return Promise.reject(err)
-    }
-
-    config.__retryCount += 1
-
-    const backoff = new Promise(function (resolve) {
-      setTimeout(function () {
-        resolve()
-      }, config.retryDelay || 1)
-    })
-
-    return backoff.then(function () {
-      return axios(config)
-    })
-  } else {
-    if (err && !err.response) {
-      err.message = '连接服务器失败!'
-    }
-    return Promise.reject(err)
-  }
-})
+function platformGet (url, options = {}) {
+  return getPlatformApi().network.get({
+    url,
+    timeout: Number(options.timeout) || TIMEOUT,
+    maxBytes: options.maxBytes
+  })
+}
 
 const zy = {
   xmlConfig: { // XML 转 JSON 配置
@@ -99,7 +49,7 @@ const zy = {
           return
         }
         const url = res.api
-        axios.get(url).then(res => {
+        platformGet(url).then(res => {
           const data = res.data
           const jsondata = cms.parse(data)
           if (!jsondata?.class || !jsondata?.list) resolve()
@@ -150,7 +100,7 @@ const zy = {
         } else {
           url = `${site.api}?ac=videolist&pg=${pg}`
         }
-        axios.get(url).then(async res => {
+        platformGet(url).then(async res => {
           const data = res.data
           const jsondata = cms.parse(data)
           const videoList = cms.asArray(jsondata.list.video)
@@ -185,7 +135,7 @@ const zy = {
         } else {
           url = `${site.api}?ac=videolist`
         }
-        axios.get(url).then(async res => {
+        platformGet(url).then(async res => {
           const jsondata = cms.parse(res.data)
           const pg = {
             page: jsondata.list._page,
@@ -215,7 +165,7 @@ const zy = {
           return
         }
         const url = `${site.api}?wd=${encodeURI(wd)}`
-        axios.get(url, { timeout: 3000 }).then(res => {
+        platformGet(url, { timeout: 3000 }).then(res => {
           const data = res.data
           const jsondata = cms.parse(data)
           if (jsondata && jsondata.list) {
@@ -259,7 +209,7 @@ const zy = {
           return
         }
         const url = `${site.api}?wd=${encodeURI(wd)}`
-        axios.get(url, { timeout: 3000 }).then(res => {
+        platformGet(url, { timeout: 3000 }).then(res => {
           const data = res.data
           const jsondata = cms.parse(data)
           if (jsondata && jsondata.list) {
@@ -298,7 +248,7 @@ const zy = {
           return
         }
         const url = `${res.api}?ac=videolist&ids=${id}`
-        axios.get(url).then(res => {
+        platformGet(url).then(res => {
           const data = res.data
           const jsondata = cms.parse(data)
           const videoList = cms.asArray(jsondata?.list?.video)[0]
@@ -370,7 +320,7 @@ const zy = {
         const site = res
           if (site.download) {
             const url = `${site.download}?ac=videolist&ids=${id}&ct=1`
-            axios.get(url).then(res => {
+            platformGet(url).then(res => {
               const data = res.data
               const jsondata = cms.parse(data)
               const videoList = cms.asArray(jsondata.list.video)[0]
@@ -442,7 +392,7 @@ const zy = {
       // 豆瓣搜索链接
       const nameToSearch = name.replace(/\s/g, '')
       const doubanSearchLink = 'https://www.douban.com/search?q=' + nameToSearch
-      axios.get(doubanSearchLink).then(res => {
+      platformGet(doubanSearchLink).then(res => {
         const $ = cheerio.load(res.data)
         // 查询所有搜索结果, 看名字和年代是否相符
         let link = ''
@@ -478,7 +428,7 @@ const zy = {
         if (link.includes('https://www.douban.com/search')) {
           resolve('暂无评分')
         } else {
-          axios.get(link).then(response => {
+          platformGet(link).then(response => {
             const parsedHtml = cheerio.load(response.data)
             const rating = parsedHtml('body').find('#interest_sectl').first().find('strong').first()
             if (rating.text()) {
@@ -509,7 +459,7 @@ const zy = {
         if (link.includes('https://www.douban.com/search')) {
           resolve(recommendations)
         } else {
-          axios.get(link).then(response => {
+          platformGet(link).then(response => {
             const $ = cheerio.load(response.data)
             $('div.recommendations-bd').find('div>dl>dd>a').each(function (index, element) {
               recommendations.push($(element).text())

@@ -10,6 +10,7 @@ const { startLocalDanmuApi, stopLocalDanmuApi } = require('./main/media-enhancem
 const path = require('path')
 const { createMainWindowWebPreferences } = require('./main/security/window-policy')
 const { registerAppIpc } = require('./main/ipc/app-ipc')
+const { siteNetworkService } = require('./main/network/runtime')
 
 const isDevelopment = process.env.NODE_ENV !== 'production'
 
@@ -63,6 +64,7 @@ registerAppIpc({
       image: fetchImageData,
       probe: probeUrl
     },
+    network: siteNetworkService,
     sourceRuntime: {
       call: callMyVideo,
       loadConfig: loadMyVideoConfig,
@@ -86,8 +88,6 @@ registerAppIpc({
 })
 
 // const log = require('electron-log') // 用于调试主程序
-
-app.commandLine.appendSwitch('disable-features', 'OutOfBlinkCors') // 允许跨域
 
 let win
 
@@ -122,11 +122,7 @@ function createWindow () {
     height: 720,
     frame: false,
     resizable: true,
-    webPreferences: {
-      ...createMainWindowWebPreferences(path.join(__dirname, 'preload.js')),
-      // Keep only the legacy network compatibility override until scoped playback policy lands.
-      webSecurity: false
-    }
+    webPreferences: createMainWindowWebPreferences(path.join(__dirname, 'preload.js'))
   })
 
   if (process.env.WEBPACK_DEV_SERVER_URL) {

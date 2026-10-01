@@ -256,6 +256,7 @@ async function main () {
     stdio: 'ignore',
     env: {
       ...process.env,
+      MY_ZYPLAYER_ALLOW_PRIVATE_SOURCE_TESTS: '1',
       MY_ZYPLAYER_DOUBAN_MOVIE_ORIGIN: base,
       MY_ZYPLAYER_DOUBAN_SEARCH_ORIGIN: base
     }
@@ -286,12 +287,11 @@ async function main () {
     await sleep(4000)
 
     const subjects = JSON.parse(await evaluate(`(async () => {
-      const ipc = require('electron').ipcRenderer
-      const list = await ipc.invoke('douban:list', { kind: 'movie', tag: '热门', limit: 4 })
+      const list = await window.myzy.douban.list({ kind: 'movie', tag: '热门', limit: 4 })
       const out = []
       for (const item of (list.list || []).slice(0, 4)) {
         try {
-          const detail = await ipc.invoke('douban:detail', item)
+          const detail = await window.myzy.douban.detail(item)
           if (detail && detail.title && detail.year && detail.kind === 'movie') out.push({ item, detail })
         } catch (error) {}
         if (out.length >= 2) break

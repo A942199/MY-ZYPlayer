@@ -213,7 +213,11 @@ async function main () {
     '--user-data-dir=' + profile
   ], {
     cwd: launchDir,
-    stdio: 'ignore'
+    stdio: 'ignore',
+    env: {
+      ...process.env,
+      MY_ZYPLAYER_ALLOW_PRIVATE_SOURCE_TESTS: '1'
+    }
   })
 
   let cdp
@@ -238,6 +242,10 @@ async function main () {
       if (ready) break
       await sleep(100)
     }
+
+    const rendererBoundary = JSON.parse(await evaluate("JSON.stringify({bridge:!!window.myzy,requireType:typeof require})"))
+    assert.strictEqual(rendererBoundary.bridge, true, 'Preload bridge is unavailable in renderer')
+    assert.strictEqual(rendererBoundary.requireType, 'undefined', 'Renderer still exposes Node require')
 
     const mockSites = [
       {
@@ -306,7 +314,9 @@ async function main () {
       "})})()"
 
     let defaultState = null
-    for (let index = 0; index < 100; index++) {
+    // Cold Electron/worker startup can exceed 10s on Windows runners; poll the
+    // actual source-ready condition with a bounded 30s ceiling.
+    for (let index = 0; index < 300; index++) {
       const value = await evaluate(stateExpression)
       if (value) {
         defaultState = JSON.parse(value)
@@ -340,7 +350,7 @@ async function main () {
 
     await selectSiteFixture('E2E 快源')
     let fastBaseline = null
-    for (let index = 0; index < 100; index++) {
+    for (let index = 0; index < 300; index++) {
       const value = await evaluate(stateExpression)
       if (value) {
         fastBaseline = JSON.parse(value)
@@ -484,7 +494,9 @@ async function main () {
     assert.strictEqual(server.e2eStats.playbackHeader, 'yes', 'Playback request headers were not applied')
 
     let enhancementState = null
-    const enhancementWaitIterations = mediaSmoke ? 450 : 80
+    // A cold local danmaku sidecar can take longer than the player first frame.
+    // Poll the actual completion condition instead of failing after an 8s startup race.
+    const enhancementWaitIterations = mediaSmoke ? 450 : 300
     for (let index = 0; index < enhancementWaitIterations; index++) {
       const value = await evaluate(
         "(() => {const root=document.querySelector('#app').__vue__;const seen=new Set();function walk(c){if(!c||seen.has(c))return null;seen.add(c);if(String(c.$options&&c.$options.name).toLowerCase()==='play')return c;for(const child of(c.$children||[])){const found=walk(child);if(found)return found}return null}const p=walk(root);if(!p)return null;return JSON.stringify({danmaku:p.danmakuState,subtitle:p.subtitleState,toggles:document.querySelectorAll('.media-feature-toggle').length,canvas:!!document.querySelector('.zy-danmaku-canvas')})})()"

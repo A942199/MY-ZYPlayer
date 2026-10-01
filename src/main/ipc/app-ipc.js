@@ -103,6 +103,16 @@ function registerAppIpc ({ ipcMain, getMainWindow, services = {} }) {
   handle('douban:image', plain, 'douban', 'image')
   handle('douban:probe', plain, 'douban', 'probe')
 
+  handle('network:get', payload => {
+    assertAllowedKeys(payload, ['url', 'timeout', 'maxBytes'])
+    const url = assertHttpUrl(payload.url, 'url').toString()
+    const timeout = payload.timeout === undefined ? undefined : Number(payload.timeout)
+    const maxBytes = payload.maxBytes === undefined ? undefined : Number(payload.maxBytes)
+    if (timeout !== undefined && (!Number.isFinite(timeout) || timeout < 1000 || timeout > 60000)) throw new TypeError('timeout out of range')
+    if (maxBytes !== undefined && (!Number.isFinite(maxBytes) || maxBytes < 1024 || maxBytes > 16 * 1024 * 1024)) throw new TypeError('maxBytes out of range')
+    return { url, timeout, maxBytes }
+  }, 'network', 'get')
+
   handle('myvideo:call', payload => {
     assertAllowedKeys(payload, ['source', 'method', 'args'])
     assertPlainObject(payload.source, 'source')

@@ -68,6 +68,9 @@ async function main () {
       image: payload => payload,
       probe: payload => payload
     },
+    network: {
+      get: payload => ({ ok: true, payload })
+    },
     sourceRuntime: {
       call: payload => ({ ok: true, payload }),
       loadConfig: url => ({ url }),
@@ -103,6 +106,12 @@ async function main () {
   const event = { sender: webContents }
   const listResult = await ipcMain.handlers.get('douban:list')(event, { kind: 'movie' })
   assert.deepStrictEqual(listResult, { ok: true, payload: { kind: 'movie' } })
+  const networkResult = await ipcMain.handlers.get('network:get')(event, { url: 'https://example.com/api', timeout: 3000 })
+  assert.deepStrictEqual(networkResult, { ok: true, payload: { url: 'https://example.com/api', timeout: 3000, maxBytes: undefined } })
+  await assert.rejects(
+    () => ipcMain.handlers.get('network:get')(event, { url: 'file:///tmp/a' }),
+    /http/i
+  )
 
   await assert.rejects(
     () => ipcMain.handlers.get('douban:list')({ sender: {} }, { kind: 'movie' }),

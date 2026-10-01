@@ -7,6 +7,7 @@ const expectedDomains = [
   'clipboard',
   'douban',
   'media',
+  'network',
   'playback',
   'settings',
   'shell',
