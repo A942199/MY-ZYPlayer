@@ -31,7 +31,7 @@ function main () {
   })
   assert.strictEqual(clamped.providers.danmaku.dandanplayAppId, 'app')
   assert.deepStrictEqual(clamped.providers.danmaku.compatibleUrls, ['https://example.test/dm'])
-  assert.strictEqual(clamped.providers.subtitles.jimakuApiKey, 'jimaku')
+  assert.strictEqual(Object.prototype.hasOwnProperty.call(clamped.providers.subtitles, 'jimakuApiKey'), false)
   assert.strictEqual(clamped.danmakuEnabled, false)
   assert.strictEqual(clamped.subtitlesEnabled, false)
   assert.deepStrictEqual(clamped.danmaku, {

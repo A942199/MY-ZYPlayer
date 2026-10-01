@@ -78,16 +78,10 @@
     "providers": {
       "danmaku": {
         "dandanplayAppId": "",
-        "dandanplayAppSecret": "",
-        "compatibleUrls": [],
-        "compatibleToken": ""
+        "compatibleUrls": []
       },
       "subtitles": {
-        "jimakuApiKey": "",
-        "assrtApiToken": "",
-        "openSubtitlesApiKey": "",
-        "openSubtitlesUserAgent": "MY-ZYPlayer v2.9",
-        "subdlApiKey": ""
+        "openSubtitlesUserAgent": "MY-ZYPlayer v2.9"
       }
     },
     "danmakuEnabled": true,

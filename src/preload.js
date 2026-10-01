@@ -70,11 +70,10 @@ const api = Object.freeze({
     fetchSubtitle: payload => invoke('media-enhancement:subtitle-fetch', payload)
   }),
   settings: Object.freeze({
-    get: () => invoke('settings:get'),
-    updatePatch: patch => invoke('settings:update-patch', { patch }),
     secretStatus: () => invoke('settings:secret-status'),
     updateSecrets: patch => invoke('settings:update-secrets', { patch }),
     clearSecrets: keys => invoke('settings:clear-secrets', { keys }),
+    migrateLegacySecrets: settings => invoke('settings:migrate-legacy-secrets', { settings }),
     applyProxy: proxyRules => invoke('settings:apply-proxy', { proxyRules }),
     getCacheSize: () => invoke('settings:get-cache-size'),
     clearCache: () => invoke('settings:clear-cache')

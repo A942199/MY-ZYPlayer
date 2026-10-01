@@ -130,11 +130,20 @@ function registerAppIpc ({ ipcMain, getMainWindow, services = {} }) {
   handle('media-enhancement:subtitle-resolve', plain, 'media', 'resolveSubtitles')
   handle('media-enhancement:subtitle-fetch', plain, 'media', 'fetchSubtitle')
 
-  handle('settings:get', null, 'settings', 'get')
-  handle('settings:update-patch', plainKeys(['patch']), 'settings', 'updatePatch')
   handle('settings:secret-status', null, 'settings', 'secretStatus')
-  handle('settings:update-secrets', plainKeys(['patch']), 'settings', 'updateSecrets')
-  handle('settings:clear-secrets', plainKeys(['keys']), 'settings', 'clearSecrets')
+  handle('settings:update-secrets', payload => {
+    assertAllowedKeys(payload, ['patch'])
+    return assertPlainObject(payload.patch, 'patch')
+  }, 'settings', 'updateSecrets')
+  handle('settings:clear-secrets', payload => {
+    assertAllowedKeys(payload, ['keys'])
+    if (!Array.isArray(payload.keys)) throw new TypeError('keys must be an array')
+    return payload.keys
+  }, 'settings', 'clearSecrets')
+  handle('settings:migrate-legacy-secrets', payload => {
+    assertAllowedKeys(payload, ['settings'])
+    return assertPlainObject(payload.settings, 'settings', 256 * 1024)
+  }, 'settings', 'migrateLegacy')
   handle('settings:apply-proxy', payload => {
     assertAllowedKeys(payload, ['proxyRules'])
     if (typeof payload.proxyRules !== 'string' || payload.proxyRules.length > 2048) throw new TypeError('proxyRules must be a string')

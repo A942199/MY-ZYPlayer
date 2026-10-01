@@ -120,6 +120,44 @@ function normalizeLocalConfig (input = {}) {
   }
 }
 
+let mediaSecretResolver = async () => ({})
+
+function setMediaSecretResolver (resolver) {
+  mediaSecretResolver = typeof resolver === 'function' ? resolver : async () => ({})
+}
+
+function mergeProviderSecrets (config = {}, secrets = {}) {
+  const source = config && typeof config === 'object' ? config : {}
+  const danmaku = source.danmaku && typeof source.danmaku === 'object' ? source.danmaku : {}
+  const subtitles = source.subtitles && typeof source.subtitles === 'object' ? source.subtitles : {}
+  return {
+    ...source,
+    danmaku: {
+      ...danmaku,
+      dandanplayAppSecret: cleanText(secrets.dandanplayAppSecret, 300),
+      compatibleToken: cleanText(secrets.compatibleToken, 500)
+    },
+    subtitles: {
+      ...subtitles,
+      jimakuApiKey: cleanText(secrets.jimakuApiKey, 500),
+      assrtApiToken: cleanText(secrets.assrtApiToken, 500),
+      openSubtitlesApiKey: cleanText(secrets.openSubtitlesApiKey, 500),
+      subdlApiKey: cleanText(secrets.subdlApiKey, 500)
+    }
+  }
+}
+
+async function withProviderSecrets (payload = {}) {
+  let secrets = {}
+  try {
+    secrets = await mediaSecretResolver()
+  } catch (error) {}
+  return {
+    ...payload,
+    config: mergeProviderSecrets(payload.config, secrets)
+  }
+}
+
 function decodeBody (buffer, encoding) {
   const value = String(encoding || '').toLowerCase()
   if (value.includes('gzip')) return zlib.gunzipSync(buffer)
@@ -1001,6 +1039,14 @@ async function fetchSubtitle (payload = {}) {
   return { text: vtt, language, contentType: 'text/vtt;charset=UTF-8' }
 }
 
+async function resolveDanmakuWithSecrets (payload = {}) {
+  return await resolveDanmaku(await withProviderSecrets(payload))
+}
+
+async function resolveSubtitlesWithSecrets (payload = {}) {
+  return await resolveSubtitles(await withProviderSecrets(payload))
+}
+
 function initializeMediaEnhancementRuntime () {
   const { startLocalDanmuApi, readLocalDanmuAnimeCache } = require('./local-danmu-runtime')
   setLocalDanmuProviderResolver(startLocalDanmuApi)
@@ -1016,6 +1062,10 @@ function registerMediaEnhancementIpc (ipcMain) {
 
 module.exports = {
   normalizeLocalConfig,
+  mergeProviderSecrets,
+  setMediaSecretResolver,
+  resolveDanmakuWithSecrets,
+  resolveSubtitlesWithSecrets,
   requestBuffer,
   normalizeDanmakuComments,
   setLocalDanmuProviderResolver,

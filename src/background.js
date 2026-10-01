@@ -1,18 +1,34 @@
 'use strict'
 
-import { app, protocol, BrowserWindow, globalShortcut, ipcMain, shell, clipboard, Menu } from 'electron'
+import { app, protocol, BrowserWindow, globalShortcut, ipcMain, shell, clipboard, Menu, safeStorage } from 'electron'
 import installExtension, { VUEJS_DEVTOOLS } from 'electron-devtools-installer'
 import { initUpdater, updaterService } from './lib/update/update'
 const { applyPlaybackHeaders, applyPlaybackResponseHeaders, callMyVideo, loadMyVideoConfig, clearMyVideoRuntimes, setPlaybackHeaders, clearPlaybackHeaderScope } = require('./main/myvideo/runtime')
 const { listSubjects, searchSubjects, subjectDetail, fetchImageData, probeUrl } = require('./main/douban/runtime')
-const { resolveDanmaku, resolveSubtitles, fetchSubtitle, initializeMediaEnhancementRuntime } = require('./main/media-enhancement/runtime')
+const { resolveDanmakuWithSecrets, resolveSubtitlesWithSecrets, fetchSubtitle, initializeMediaEnhancementRuntime, setMediaSecretResolver } = require('./main/media-enhancement/runtime')
 const { startLocalDanmuApi, stopLocalDanmuApi } = require('./main/media-enhancement/local-danmu-runtime')
 const path = require('path')
+const fs = require('fs')
 const { createMainWindowWebPreferences } = require('./main/security/window-policy')
 const { registerAppIpc } = require('./main/ipc/app-ipc')
 const { siteNetworkService } = require('./main/network/runtime')
+const { createSettingsSecretRuntime } = require('./main/settings/runtime')
 
 const isDevelopment = process.env.NODE_ENV !== 'production'
+let settingsSecretRuntime = null
+
+function requireSettingsSecretRuntime () {
+  if (!settingsSecretRuntime) throw new Error('Settings secret runtime is unavailable')
+  return settingsSecretRuntime
+}
+
+setMediaSecretResolver(async () => {
+  try {
+    return await requireSettingsSecretRuntime().readForMainProcess()
+  } catch (error) {
+    return {}
+  }
+})
 
 initializeMediaEnhancementRuntime()
 
@@ -75,11 +91,15 @@ registerAppIpc({
       clearHeaders: clearPlaybackHeaderScope
     },
     media: {
-      resolveDanmaku,
-      resolveSubtitles,
+      resolveDanmaku: resolveDanmakuWithSecrets,
+      resolveSubtitles: resolveSubtitlesWithSecrets,
       fetchSubtitle
     },
     settings: {
+      secretStatus: () => requireSettingsSecretRuntime().secretStatus(),
+      updateSecrets: patch => requireSettingsSecretRuntime().updateSecrets(patch),
+      clearSecrets: keys => requireSettingsSecretRuntime().clearSecrets(keys),
+      migrateLegacy: settings => requireSettingsSecretRuntime().migrateLegacy(settings),
       applyProxy: proxyRules => requireMainWindow().webContents.session.setProxy({ proxyRules }),
       getCacheSize: () => requireMainWindow().webContents.session.getCacheSize(),
       clearCache: () => requireMainWindow().webContents.session.clearCache()
@@ -219,6 +239,11 @@ if (!gotTheLock) {
         console.error('Vue Devtools failed to install:', e.toString())
       }
     }
+    settingsSecretRuntime = createSettingsSecretRuntime({
+      safeStorage,
+      fs,
+      userDataPath: app.getPath('userData')
+    })
     createWindow()
     startLocalDanmuApi().catch(error => {
       console.error('[danmu_api] local runtime warmup failed:', error && error.message ? error.message : error)

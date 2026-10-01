@@ -170,34 +170,35 @@
             <el-input v-model="mediaEnhancementDraft.providers.danmaku.dandanplayAppId" placeholder="DANDANPLAY_APP_ID" />
           </el-form-item>
           <el-form-item label="弹弹 Secret">
-            <el-input v-model="mediaEnhancementDraft.providers.danmaku.dandanplayAppSecret" type="password" show-password placeholder="DANDANPLAY_APP_SECRET" />
+            <el-input v-model="mediaSecretDraft.dandanplayAppSecret" type="password" show-password :placeholder="secretPlaceholder('dandanplayAppSecret')" />
           </el-form-item>
           <el-form-item label="兼容弹幕源">
             <el-input v-model="compatibleDanmakuUrlsText" type="textarea" :rows="2" placeholder="每行一个兼容弹幕 API 根地址" />
           </el-form-item>
           <el-form-item label="弹幕 Token">
-            <el-input v-model="mediaEnhancementDraft.providers.danmaku.compatibleToken" type="password" show-password placeholder="可选 Bearer Token" />
+            <el-input v-model="mediaSecretDraft.compatibleToken" type="password" show-password :placeholder="secretPlaceholder('compatibleToken')" />
           </el-form-item>
           <el-form-item label="Jimaku Key">
-            <el-input v-model="mediaEnhancementDraft.providers.subtitles.jimakuApiKey" type="password" show-password />
+            <el-input v-model="mediaSecretDraft.jimakuApiKey" type="password" show-password :placeholder="secretPlaceholder('jimakuApiKey')" />
           </el-form-item>
           <el-form-item label="ASSRT Token">
-            <el-input v-model="mediaEnhancementDraft.providers.subtitles.assrtApiToken" type="password" show-password />
+            <el-input v-model="mediaSecretDraft.assrtApiToken" type="password" show-password :placeholder="secretPlaceholder('assrtApiToken')" />
           </el-form-item>
           <el-form-item label="OpenSub Key">
-            <el-input v-model="mediaEnhancementDraft.providers.subtitles.openSubtitlesApiKey" type="password" show-password />
+            <el-input v-model="mediaSecretDraft.openSubtitlesApiKey" type="password" show-password :placeholder="secretPlaceholder('openSubtitlesApiKey')" />
           </el-form-item>
           <el-form-item label="OpenSub UA">
             <el-input v-model="mediaEnhancementDraft.providers.subtitles.openSubtitlesUserAgent" placeholder="MY-ZYPlayer v2.9" />
           </el-form-item>
           <el-form-item label="SubDL Key">
-            <el-input v-model="mediaEnhancementDraft.providers.subtitles.subdlApiKey" type="password" show-password />
+            <el-input v-model="mediaSecretDraft.subdlApiKey" type="password" show-password :placeholder="secretPlaceholder('subdlApiKey')" />
           </el-form-item>
-          <div class="media-enhancement-dialog-note">弹幕匹配由本机 danmu_api 直接访问视频平台源；字幕仍由本机 Electron 主进程连接字幕提供方。不经过 video.zi-quan.com。API Key 只保存在本机设置数据库。</div>
+          <div class="media-enhancement-dialog-note">密钥使用操作系统安全存储加密保存，不写入 IndexedDB；界面只显示是否已配置，留空不会覆盖已有密钥。</div>
         </el-form>
         <span slot="footer" class="dialog-footer">
           <el-button @click="closeDialog">取消</el-button>
-          <el-button type="danger" @click="resetMediaEnhancementService">重置</el-button>
+          <el-button type="danger" plain @click="clearMediaEnhancementSecrets">清除已保存密钥</el-button>
+          <el-button type="danger" @click="resetMediaEnhancementService">重置非密钥设置</el-button>
           <el-button type="primary" @click="saveMediaEnhancementService">确定</el-button>
         </span>
       </el-dialog>
@@ -273,7 +274,7 @@
 <script>
 import { mapMutations } from 'vuex'
 import pkg from '../../package.json'
-import { setting, sites, shortcut } from '../lib/dexie'
+import { setting, settingsRepository, sites, shortcut } from '../lib/dexie'
 import { localKey as defaultShortcuts } from '../lib/dexie/initData'
 const { getPlatformApi } = require('../lib/platform/api')
 import db from '../lib/dexie/dexie'
@@ -308,6 +309,15 @@ export default {
         port: ''
       },
       mediaEnhancementDraft: normalizeMediaEnhancementConfig(),
+      mediaSecretDraft: {
+        dandanplayAppSecret: '',
+        compatibleToken: '',
+        jimakuApiKey: '',
+        assrtApiToken: '',
+        openSubtitlesApiKey: '',
+        subdlApiKey: ''
+      },
+      mediaSecretStatus: { available: false, configured: {} },
       compatibleDanmakuUrlsText: '',
       update: {
         find: false,
@@ -344,17 +354,31 @@ export default {
     linkOpen (e) {
       getPlatformApi().shell.openExternal(e)
     },
-    getSetting () {
-      setting.find().then(async res => {
-        res = res || { id: 0 }
-        // Normalize for the current UI/store only. Startup must stay read-only so it
-        // cannot overwrite a concurrent settings update with a stale snapshot.
-        res.mediaEnhancement = normalizeMediaEnhancementConfig(res.mediaEnhancement)
-        this.d = res
-        this.setting = this.d
-        if (!this.setting.defaultParseURL) this.configDefaultParseURL()
-        if (!this.setting.sitesDataURL) this.resetDefaultSitesDataURL()
-      })
+    async getSetting () {
+      let res = await setting.find()
+      res = res || { id: 0 }
+      try {
+        const migration = await getPlatformApi().settings.migrateLegacySecrets({ mediaEnhancement: res.mediaEnhancement })
+        if (migration && migration.migrated && migration.clearPatch) {
+          await settingsRepository.updatePatch(migration.clearPatch)
+          res = await setting.find() || res
+        }
+        this.mediaSecretStatus = migration && migration.status
+          ? migration.status
+          : await getPlatformApi().settings.secretStatus()
+      } catch (error) {
+        try {
+          this.mediaSecretStatus = await getPlatformApi().settings.secretStatus()
+        } catch (statusError) {
+          this.mediaSecretStatus = { available: false, configured: {} }
+        }
+        console.warn('系统安全存储暂不可用，保留旧密钥等待迁移:', error && error.message ? error.message : error)
+      }
+      res.mediaEnhancement = normalizeMediaEnhancementConfig(res.mediaEnhancement)
+      this.d = res
+      this.setting = this.d
+      if (!this.setting.defaultParseURL) this.configDefaultParseURL()
+      if (!this.setting.sitesDataURL) this.resetDefaultSitesDataURL()
     },
     async getDefaultSites () {
       const s = await setting.find()
@@ -427,10 +451,29 @@ export default {
         this.view = 'EditSites'
       }
     },
-    openMediaEnhancementDialog () {
+    async openMediaEnhancementDialog () {
       this.mediaEnhancementDraft = normalizeMediaEnhancementConfig(this.d.mediaEnhancement)
+      this.mediaSecretDraft = {
+        dandanplayAppSecret: '',
+        compatibleToken: '',
+        jimakuApiKey: '',
+        assrtApiToken: '',
+        openSubtitlesApiKey: '',
+        subdlApiKey: ''
+      }
       this.compatibleDanmakuUrlsText = (this.mediaEnhancementDraft.providers.danmaku.compatibleUrls || []).join('\n')
+      try {
+        this.mediaSecretStatus = await getPlatformApi().settings.secretStatus()
+      } catch (error) {
+        this.mediaSecretStatus = { available: false, configured: {} }
+      }
       this.show.mediaEnhancementDialog = true
+    },
+    secretPlaceholder (key) {
+      if (!this.mediaSecretStatus.available) return '系统安全存储不可用'
+      return this.mediaSecretStatus.configured && this.mediaSecretStatus.configured[key]
+        ? '已安全保存，留空不修改'
+        : '输入新密钥'
     },
     async saveMediaEnhancementQuick () {
       this.d.mediaEnhancement = normalizeMediaEnhancementConfig(this.d.mediaEnhancement)
@@ -439,14 +482,44 @@ export default {
     async saveMediaEnhancementService () {
       const draft = normalizeMediaEnhancementConfig(this.mediaEnhancementDraft)
       draft.providers.danmaku.compatibleUrls = String(this.compatibleDanmakuUrlsText || '').split(/[\r\n,;]+/).map(value => value.trim()).filter(Boolean).slice(0, 12)
+      const secretPatch = {}
+      Object.entries(this.mediaSecretDraft).forEach(([key, value]) => {
+        const text = String(value || '').trim()
+        if (text) secretPatch[key] = text
+      })
+      if (Object.keys(secretPatch).length) {
+        try {
+          this.mediaSecretStatus = await getPlatformApi().settings.updateSecrets(secretPatch)
+        } catch (error) {
+          this.$message.error('无法安全保存密钥：' + (error && error.message ? error.message : error))
+          return
+        }
+      }
       const normalized = normalizeMediaEnhancementConfig({
         ...this.d.mediaEnhancement,
         providers: draft.providers
       })
       this.d.mediaEnhancement = normalized
-      await this.updateSettingEvent()
+      await settingsRepository.updatePatch({ mediaEnhancement: normalized })
+      this.setting = this.d
       this.show.mediaEnhancementDialog = false
       this.$message.success('字幕/弹幕服务设置已保存')
+    },
+    async clearMediaEnhancementSecrets () {
+      try {
+        this.mediaSecretStatus = await getPlatformApi().settings.clearSecrets([
+          'dandanplayAppSecret',
+          'compatibleToken',
+          'jimakuApiKey',
+          'assrtApiToken',
+          'openSubtitlesApiKey',
+          'subdlApiKey'
+        ])
+        Object.keys(this.mediaSecretDraft).forEach(key => { this.mediaSecretDraft[key] = '' })
+        this.$message.success('已清除安全存储中的字幕/弹幕密钥')
+      } catch (error) {
+        this.$message.error('清除密钥失败：' + (error && error.message ? error.message : error))
+      }
     },
     resetMediaEnhancementService () {
       this.mediaEnhancementDraft = normalizeMediaEnhancementConfig({
@@ -465,6 +538,7 @@ export default {
         this.show.proxyDialog = false
         this.proxy = { ...(this.d.proxy || { type: 'none', scheme: '', url: '', port: '' }) }
       }
+      Object.keys(this.mediaSecretDraft).forEach(key => { this.mediaSecretDraft[key] = '' })
       this.inputPassword = ''
     },
     checkPasswordEvent () {
