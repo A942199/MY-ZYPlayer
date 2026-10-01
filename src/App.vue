@@ -18,7 +18,7 @@
 </template>
 
 <script>
-import { setting } from './lib/dexie'
+import { setting, settingsRepository } from './lib/dexie'
 const { getPlatformApi } = require('./lib/platform/api')
 export default {
   name: 'App',
@@ -58,10 +58,7 @@ export default {
         newWinSizePosition.width !== this.winSizePosition.width ||
         newWinSizePosition.height !== this.winSizePosition.height) {
         this.winSizePosition = newWinSizePosition
-        setting.find().then(res => {
-          res.windowPositionAndSize = newWinSizePosition
-          setting.update(res)
-        })
+        settingsRepository.updatePatch({ windowPositionAndSize: newWinSizePosition })
       }
     }
   },

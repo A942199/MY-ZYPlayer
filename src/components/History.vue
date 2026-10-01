@@ -148,7 +148,7 @@
 </template>
 <script>
 import { mapMutations } from 'vuex'
-import { history, sites, setting } from '../lib/dexie'
+import { history, sites, setting, settingsRepository } from '../lib/dexie'
 import zy from '../lib/site/tools'
 import Waterfall from 'vue-waterfall-plugin'
 const { getPlatformApi } = require('../lib/platform/api')
@@ -285,10 +285,7 @@ export default {
       } else {
         setTimeout(() => { if (this.$refs.historyWaterfall) this.$refs.historyWaterfall.refresh() }, 700)
       }
-      setting.find().then(res => {
-        res.historyViewMode = this.setting.historyViewMode
-        setting.update(res)
-      })
+      settingsRepository.updatePatch({ historyViewMode: this.setting.historyViewMode })
     },
     backTop () {
       if (this.setting.historyViewMode === 'picture') {
@@ -459,10 +456,7 @@ export default {
       if (this.setting.shiftTooltipLimitTimes) {
         this.$message.info('多选时支持shift快捷键')
         this.setting.shiftTooltipLimitTimes--
-        setting.find().then(res => {
-          res.shiftTooltipLimitTimes = this.setting.shiftTooltipLimitTimes
-          setting.update(res)
-        })
+        settingsRepository.updatePatch({ shiftTooltipLimitTimes: this.setting.shiftTooltipLimitTimes })
       }
     }
   },

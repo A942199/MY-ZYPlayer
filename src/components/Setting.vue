@@ -413,17 +413,17 @@ export default {
       await getPlatformApi().settings.clearCache()
       this.$message.success(`清除缓存成功, 共清理 ${mb} MB`)
     },
-    updateSettingEvent () {
+    updateSettingEvent (patch = this.d) {
       this.setting = this.d
-      return setting.update(this.d)
+      return settingsRepository.updatePatch(patch)
     },
     toggleExcludeR18Films () {
       this.d.excludeR18Films = !this.d.excludeR18Films
-      this.updateSettingEvent()
+      this.updateSettingEvent({ excludeR18Films: this.d.excludeR18Films })
     },
     toggleExcludeRootClasses () {
       this.d.excludeRootClasses = !this.d.excludeRootClasses
-      this.updateSettingEvent()
+      this.updateSettingEvent({ excludeRootClasses: this.d.excludeRootClasses })
     },
     async resetDefaultParseURL () {
       this.setting.defaultParseURL = 'https://jx.bpba.cc/?v='
@@ -432,7 +432,7 @@ export default {
       if (!this.setting.defaultParseURL) await this.resetDefaultParseURL()
       this.d.defaultParseURL = this.setting.defaultParseURL?.trim()
       this.show.configDefaultParseUrlDialog = false
-      this.updateSettingEvent()
+      this.updateSettingEvent({ defaultParseURL: this.d.defaultParseURL })
     },
     resetDefaultSitesDataURL () {
       this.setting.sitesDataURL = 'https://raw.githubusercontent.com/A942199/yuan/refs/heads/main/TV.json'
@@ -441,7 +441,7 @@ export default {
       if (!this.setting.sitesDataURL) this.resetDefaultSitesDataURL()
       this.d.sitesDataURL = this.setting.sitesDataURL
       this.show.configSitesDataUrlDialog = false
-      this.updateSettingEvent()
+      this.updateSettingEvent({ sitesDataURL: this.d.sitesDataURL })
     },
     editSitesEvent () {
       if (this.d.password) {
@@ -477,7 +477,7 @@ export default {
     },
     async saveMediaEnhancementQuick () {
       this.d.mediaEnhancement = normalizeMediaEnhancementConfig(this.d.mediaEnhancement)
-      await this.updateSettingEvent()
+      await this.updateSettingEvent({ mediaEnhancement: this.d.mediaEnhancement })
     },
     async saveMediaEnhancementService () {
       const draft = normalizeMediaEnhancementConfig(this.mediaEnhancementDraft)
@@ -565,16 +565,16 @@ export default {
     },
     confirmedChangePasswordEvent () {
       this.d.password = this.inputPassword
-      this.updateSettingEvent()
+      this.updateSettingEvent({ password: this.d.password })
       this.closeDialog()
     },
     changeTheme (e) {
       this.d.theme = e
-      this.updateSettingEvent()
+      this.updateSettingEvent({ theme: this.d.theme })
     },
     changeShortcut (e) {
       this.d.shortcut = e
-      this.updateSettingEvent()
+      this.updateSettingEvent({ shortcut: this.d.shortcut })
       this.show.shortcut = false
     },
     expShortcut () {
@@ -592,7 +592,7 @@ export default {
           this.$message.success('快捷键已导入')
           this.getShortcut()
           this.d.shortcutModified = true
-          this.updateSettingEvent()
+          this.updateSettingEvent({ shortcutModified: true })
         }).catch(error => this.$message.error('快捷键导入失败：' + error.message))
       } catch (error) {
         this.$message.error('剪贴板内容不是有效的快捷键 JSON：' + error.message)
@@ -603,7 +603,7 @@ export default {
         this.getShortcut()
         this.$message.success('快捷键已重置')
         this.d.shortcutModified = true
-        this.updateSettingEvent()
+        this.updateSettingEvent({ shortcutModified: true })
       })
     },
     async changeProxyType (e) {
@@ -620,7 +620,7 @@ export default {
       }
 
       this.d.proxy = { ...(this.d.proxy || {}), type: e }
-      await this.updateSettingEvent()
+      await this.updateSettingEvent({ proxy: this.d.proxy })
       zy.proxy()
     },
     async proxyConfirm () {
@@ -634,7 +634,7 @@ export default {
         url: this.proxy.url.trim(),
         port: String(this.proxy.port).trim()
       }
-      await this.updateSettingEvent()
+      await this.updateSettingEvent({ proxy: this.d.proxy })
       this.show.proxyDialog = false
       zy.proxy()
       this.$message.info('开始使用代理')

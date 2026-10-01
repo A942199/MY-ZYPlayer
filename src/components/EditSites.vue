@@ -163,7 +163,7 @@
 </template>
 <script>
 import { mapMutations } from 'vuex'
-import { sites, setting } from '../lib/dexie'
+import { sites, setting, settingsRepository } from '../lib/dexie'
 import zy from '../lib/site/tools'
 const myvideo = require('../lib/site/myvideo')
 import Sortable from 'sortablejs'
@@ -261,10 +261,7 @@ export default {
         if (this.setting.shiftTooltipLimitTimes) {
           this.$message.info('多选时支持shift快捷键')
           this.setting.shiftTooltipLimitTimes--
-          setting.find().then(res => {
-            res.shiftTooltipLimitTimes = this.setting.shiftTooltipLimitTimes
-            setting.update(res)
-          })
+          settingsRepository.updatePatch({ shiftTooltipLimitTimes: this.setting.shiftTooltipLimitTimes })
         }
       }
     }
@@ -353,7 +350,13 @@ export default {
       if (this.excludeR18Films) {
         this.setting.classFilter = this.setting.classFilter.concat(this.setting.r18ClassFilter)
       }
-      setting.update(this.setting)
+      settingsRepository.updatePatch({
+        rootClassFilter: this.setting.rootClassFilter,
+        r18ClassFilter: this.setting.r18ClassFilter,
+        classFilter: this.setting.classFilter,
+        excludeRootClasses: this.setting.excludeRootClasses,
+        excludeR18Films: this.setting.excludeR18Films
+      })
       this.filterKeywordsDialogVisible = false
     },
     isMyVideoSite (site) {

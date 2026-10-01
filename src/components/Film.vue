@@ -307,7 +307,7 @@
 </template>
 <script>
 import { mapMutations } from 'vuex'
-import { star, history, search, sites, setting } from '../lib/dexie'
+import { star, history, search, sites, setting, settingsRepository } from '../lib/dexie'
 import zy from '../lib/site/tools'
 const myvideo = require('../lib/site/myvideo')
 const { findCategoryByTid, formatCategoryOptionLabel } = require('../lib/site/navigation')
@@ -547,10 +547,9 @@ export default {
       } else {
         this.setting.view = this.setting.view === 'picture' ? 'table' : 'picture'
       }
-      setting.find().then(res => {
-        res.searchViewMode = this.setting.searchViewMode
-        res.view = this.setting.view
-        setting.update(res)
+      settingsRepository.updatePatch({
+        searchViewMode: this.setting.searchViewMode,
+        view: this.setting.view
       })
     },
     sortByLocaleCompare (a, b) {
@@ -902,7 +901,7 @@ export default {
       const wd = this.searchTxt
       if (this.setting.searchGroup !== this.searchGroup) {
         this.setting.searchGroup = this.searchGroup
-        setting.update(this.setting)
+        settingsRepository.updatePatch({ searchGroup: this.searchGroup })
       }
       if (!wd) return
       this.searchID += 1

@@ -173,7 +173,7 @@
 </template>
 <script>
 import { mapMutations } from 'vuex'
-import { history, star, sites, setting } from '../lib/dexie'
+import { history, star, sites, setting, settingsRepository } from '../lib/dexie'
 import zy from '../lib/site/tools'
 import Sortable from 'sortablejs'
 import Waterfall from 'vue-waterfall-plugin'
@@ -281,10 +281,7 @@ export default {
       } else {
         setTimeout(() => { if (this.$refs.starWaterfall) this.$refs.starWaterfall.refresh() }, 700)
       }
-      setting.find().then(res => {
-        res.starViewMode = this.setting.starViewMode
-        setting.update(res)
-      })
+      settingsRepository.updatePatch({ starViewMode: this.setting.starViewMode })
     },
     backTop () {
       if (this.setting.starViewMode === 'picture') {
@@ -519,10 +516,7 @@ export default {
       if (this.setting.shiftTooltipLimitTimes) {
         this.$message.info('多选时支持shift快捷键')
         this.setting.shiftTooltipLimitTimes--
-        setting.find().then(res => {
-          res.shiftTooltipLimitTimes = this.setting.shiftTooltipLimitTimes
-          setting.update(res)
-        })
+        settingsRepository.updatePatch({ shiftTooltipLimitTimes: this.setting.shiftTooltipLimitTimes })
       }
     }
   },

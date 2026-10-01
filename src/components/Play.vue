@@ -178,7 +178,7 @@
 </template>
 <script>
 import { mapMutations } from 'vuex'
-import { star, history, setting, shortcut, mini, sites } from '../lib/dexie'
+import { star, history, setting, settingsRepository, shortcut, mini, sites } from '../lib/dexie'
 import zy from '../lib/site/tools'
 import Player from 'xgplayer'
 import 'xgplayer-mp4'
@@ -1015,11 +1015,7 @@ export default {
     async persistMediaEnhancementConfig () {
       const normalized = normalizeMediaEnhancementConfig(this.mediaEnhancementConfig)
       this.mediaEnhancementConfig = normalized
-      const row = await setting.find()
-      if (row) {
-        row.mediaEnhancement = normalized
-        await setting.update(row)
-      }
+      await settingsRepository.updatePatch({ mediaEnhancement: normalized })
     },
     scheduleMediaEnhancementMount (selectedEntry) {
       const token = ++this.mediaEnhancementMountToken
@@ -1207,10 +1203,7 @@ export default {
         }
       }).finally(() => {
         this.setting.shortcutModified = false
-        setting.find().then(res => {
-          res.shortcutModified = this.setting.shortcutModified
-          setting.update(res)
-        })
+        settingsRepository.updatePatch({ shortcutModified: this.setting.shortcutModified })
       })
     },
     async shortcutEvent (e) {
@@ -1518,7 +1511,7 @@ export default {
       this.xg.on('volumechange', () => {
         this.config.volume = this.xg.volume.toFixed(2)
         const volume = this.config.volume
-        setTimeout(() => { if (volume === this.config.volume) setting.find().then(res => { res.volume = this.config.volume; setting.update(res) }) }, 500)
+        setTimeout(() => { if (volume === this.config.volume) settingsRepository.updatePatch({ volume: this.config.volume }) }, 500)
       })
 
       this.xg.on('timeupdate', () => {
