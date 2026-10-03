@@ -111,7 +111,7 @@
           <span class="progress" v-else>扫描完成 {{scanState.completed || scanState.total}} / {{scanState.total}}</span>
         </div>
         <div class="scan-hint">
-          先完整扫描启用的 CMS；只有 CMS 没有找到可播匹配时才进入 BD/CSP fallback。BD/CSP 一旦启动会继续 exhaustive，首个可播会提前显示，最终保留 Top 5。切换 Provider 始终由你手动完成。
+          以豆瓣作品信息为基准，对全部启用源只做一次作品级匹配；身份准确度达标后，再综合画质、流畅度和历史稳定性生成最终 Top 5。电视剧切集不会重新扫描源。
         </div>
 
         <div class="first-playable" v-if="scanState.firstPlayable && scanState.status === 'scanning'">
@@ -127,7 +127,11 @@
             <span class="rank">#{{index + 1}}</span>
             <span class="provider-name">{{row.site.name}}</span>
             <span class="kind" :class="row.providerKind.toLowerCase()">{{row.providerKind}}</span>
-            <span class="score">匹配 {{row.score}}</span>
+            <span class="score">综合 {{row.finalScore}}</span>
+            <span class="score">准确 {{row.accuracy}}</span>
+            <span class="score">画质 {{row.qualityScore}}</span>
+            <span class="score">流畅 {{row.smoothnessScore}}</span>
+            <span class="score">稳定 {{row.stabilityScore}}</span>
             <span class="line" v-if="row.line">{{row.line}}</span>
             <span class="latency">{{row.latency}}ms</span>
             <span class="verified">✓ 已验证</span>
@@ -135,7 +139,8 @@
         </div>
 
         <div class="empty" v-if="scanState.status === 'complete' && !scanState.top5.length">
-          所有启用源均已扫描，没有找到同时满足身份匹配和可播放验证的 Provider。
+          <template v-if="scanState.incomplete">扫描完成，但部分 Provider 临时失败；当前无法确认所有源都没有匹配，请稍后重试。</template>
+          <template v-else>所有启用源均已扫描，没有找到同时满足身份匹配和可播放验证的 Provider。</template>
         </div>
       </div>
     </div>
@@ -145,6 +150,7 @@
 <script>
 const { getPlatformApi } = require('../lib/platform/api')
 const { scan } = require('../lib/douban/scanner')
+const { sortSubjectsForDisplay } = require('../lib/douban/sort')
 
 export default {
   name: 'Douban',
@@ -188,6 +194,7 @@ export default {
         cmsCompleted: 0,
         bdTotal: 0,
         bdCompleted: 0,
+        incomplete: false,
         firstPlayable: null,
         results: [],
         top5: []
@@ -236,7 +243,7 @@ export default {
         })
         if (generation !== this.loadGeneration) return
         const rows = this.normalizeRows(payload.list || [], section)
-        this.list = rows
+        this.list = sortSubjectsForDisplay(rows, this.sort)
         this.nextStart = rows.length
         this.hasMore = rows.length >= this.pageLimit
         this.searchMode = false
@@ -268,7 +275,7 @@ export default {
         const rows = this.normalizeRows(payload.list || [], section)
         const known = new Set(this.list.map(item => String(item.id || '')))
         const added = rows.filter(item => !known.has(String(item.id || '')))
-        this.list = this.list.concat(added)
+        this.list = sortSubjectsForDisplay(this.list.concat(added), this.sort)
         this.nextStart += rows.length
         this.hasMore = rows.length >= this.pageLimit
         this.hydrateCovers(added)
@@ -301,20 +308,30 @@ export default {
       return item && (item.coverData || item.cover) || ''
     },
     async loadCover (item) {
-      if (!item || !item.cover || item._coverProxyLoading || item._coverProxyTried) return
+      const attempts = Number(item && item._coverProxyAttempts) || 0
+      const retryAt = Number(item && item._coverProxyRetryAt) || 0
+      if (!item || !item.cover || item._coverProxyLoading || attempts >= 3 || retryAt > Date.now()) return
       this.$set(item, '_coverProxyLoading', true)
-      this.$set(item, '_coverProxyTried', true)
+      this.$set(item, '_coverProxyAttempts', attempts + 1)
       try {
         const payload = await getPlatformApi().douban.image({ url: item.cover })
-        if (payload && payload.dataUrl) this.$set(item, 'coverData', payload.dataUrl)
+        if (!payload || !payload.dataUrl) throw new Error('Empty proxied cover')
+        this.$set(item, 'coverData', payload.dataUrl)
+        this.$set(item, '_coverProxyRetryAt', 0)
       } catch (error) {
-        // Keep the card usable even when an individual poster fails.
+        const delay = Math.min(30000, 3000 * Math.pow(2, attempts))
+        this.$set(item, '_coverProxyRetryAt', Date.now() + delay)
+        if (attempts + 1 < 3) {
+          setTimeout(() => {
+            if (!this._isDestroyed) this.loadCover(item)
+          }, delay)
+        }
       } finally {
         this.$set(item, '_coverProxyLoading', false)
       }
     },
     hydrateCovers (rows) {
-      const queue = (rows || []).filter(item => item && item.cover && !item.coverData && !item._coverProxyTried)
+      const queue = (rows || []).filter(item => item && item.cover && !item.coverData && (Number(item._coverProxyAttempts) || 0) < 3 && (Number(item._coverProxyRetryAt) || 0) <= Date.now())
       let next = 0
       const worker = async () => {
         while (next < queue.length) {
@@ -352,24 +369,27 @@ export default {
     },
     async search () {
       if (!this.searchText) return this.clearSearch()
-      this.loadGeneration++
+      const query = this.searchText
+      const generation = ++this.loadGeneration
       this.loadingMore = false
       this.hasMore = false
       this.loading = true
       this.error = ''
       try {
-        const payload = await getPlatformApi().douban.search({ text: this.searchText, japanOnly: true })
+        const payload = await getPlatformApi().douban.search({ text: query, japanOnly: true })
+        if (generation !== this.loadGeneration || query !== this.searchText) return
         this.list = payload.list || []
         this.searchMode = true
         this.hydrateCovers(this.list)
         this.selected = null
       } catch (error) {
+        if (generation !== this.loadGeneration || query !== this.searchText) return
         this.list = []
         this.searchMode = true
         this.selected = null
         this.error = '豆瓣搜索失败：' + error.message
       } finally {
-        this.loading = false
+        if (generation === this.loadGeneration) this.loading = false
       }
     },
     clearSearch () {
@@ -385,7 +405,7 @@ export default {
       this.unsubscribe = null
       this.scanHandle = null
       this.selected = { ...item }
-      this.scanState = { status: 'preparing', phase: 'cms', total: 0, completed: 0, cmsTotal: 0, cmsCompleted: 0, bdTotal: 0, bdCompleted: 0, firstPlayable: null, results: [], top5: [] }
+      this.scanState = { status: 'preparing', phase: 'cms', total: 0, completed: 0, cmsTotal: 0, cmsCompleted: 0, bdTotal: 0, bdCompleted: 0, incomplete: false, firstPlayable: null, results: [], top5: [] }
       this.error = ''
       this.detailWarning = ''
 
@@ -411,10 +431,7 @@ export default {
     },
     startSubjectScan (identity, generation) {
       try {
-        const handle = scan(identity, state => {
-          if (generation !== this.selectionGeneration) return
-          this.scanState = { ...state }
-        })
+        const handle = scan(identity)
         this.scanHandle = handle
         this.unsubscribe = handle.subscribe(state => {
           if (generation !== this.selectionGeneration) return
@@ -459,6 +476,8 @@ export default {
     this.load()
   },
   beforeDestroy () {
+    this.loadGeneration++
+    this.selectionGeneration++
     if (this.unsubscribe) this.unsubscribe()
   }
 }

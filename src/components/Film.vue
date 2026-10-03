@@ -895,6 +895,7 @@ export default {
       })
     },
     stopSearchEvent () {
+      this.searchID += 1
       this.searchRunning = false
     },
     searchEvent () {
@@ -925,40 +926,48 @@ export default {
         if (!this.searchContents.length) this.statusText = '暂无数据'
       }
 
-      targets.forEach(site => {
-        zy.search(site.key, wd).then(res => {
+      let cursor = 0
+      const processSite = async site => {
+        try {
+          const res = await zy.search(site.key, wd)
           if (id !== this.searchID || !this.searchRunning) return
-          const rows = Array.isArray(res) ? res : (res && typeof res === 'object' ? [res] : [])
+          const rows = (Array.isArray(res) ? res : (res && typeof res === 'object' ? [res] : [])).slice(0, 20)
           if (!rows.length) {
-            markSiteComplete()
             if (this.searchGroup === '站内') this.$message.info('没有查询到数据！')
             return
           }
-
-          let completed = 0
-          const markDetailComplete = () => {
-            completed += 1
-            if (completed === rows.length) markSiteComplete()
-          }
-
-          rows.forEach(element => {
-            zy.detail(site.key, element.id).then(detailRes => {
+          for (const element of rows) {
+            if (id !== this.searchID || !this.searchRunning) return
+            try {
+              const detailRes = await zy.detail(site.key, element.id)
               if (id !== this.searchID || !this.searchRunning) return
+              if (!detailRes) continue
               detailRes.site = site
               if (this.isValidSearchResult(detailRes)) {
                 this.searchContents.push(detailRes)
                 this.searchContents.sort((a, b) => a.site.id - b.site.id)
               }
-            }).catch(error => {
+            } catch (error) {
               console.warn('搜索详情加载失败:', site.name, element.id, error)
-            }).finally(markDetailComplete)
-          })
-        }).catch(error => {
+            }
+          }
+        } catch (error) {
           if (id !== this.searchID) return
           console.warn('源搜索失败:', site.name, error)
-          markSiteComplete()
           if (this.searchGroup === '站内') this.$message.error('本次查询状态异常，未获取到数据！')
-        })
+        } finally {
+          markSiteComplete()
+        }
+      }
+
+      const worker = async () => {
+        while (id === this.searchID && this.searchRunning && cursor < targets.length) {
+          const site = targets[cursor++]
+          await processSite(site)
+        }
+      }
+      Promise.all(Array.from({ length: Math.min(4, targets.length) }, () => worker())).catch(error => {
+        console.warn('并发搜索任务失败:', error)
       })
     },
     isValidSearchResult (detailRes) {
@@ -994,8 +1003,9 @@ export default {
     },
     getAllSites () {
       sites.all().then(res => {
-        if (res.length <= 0) {
-          this.$message.warning('检测到视频源未能正常加载, 即将重置源.')
+        const needsIntegrityRefresh = res.some(item => myvideo.isSource(item) && item.configUrl && !/^[a-f0-9]{64}$/i.test(String(item.sha256 || (item.integrity && item.integrity.sha256) || '')))
+        if (res.length <= 0 || needsIntegrityRefresh) {
+          this.$message.warning(res.length <= 0 ? '检测到视频源未能正常加载, 即将重置源.' : '检测到旧版远程源缺少完整性校验，正在安全刷新源列表。')
           this.getDefaultSites()
         } else {
           this.sites = res.filter(item => item.isActive)

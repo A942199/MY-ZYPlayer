@@ -78,7 +78,9 @@ async function main () {
     },
     playback: {
       setHeaders: payload => payload,
-      clearHeaders: payload => payload
+      clearHeaders: payload => payload,
+      prepareProxy: payload => ({ ...payload, scopeId: 'proxy-scope' }),
+      releaseProxy: payload => payload
     },
     media: {
       resolveDanmaku: payload => payload,
@@ -132,6 +134,21 @@ async function main () {
     /http/i
   )
   assert.strictEqual(calls.some(item => Array.isArray(item) && item[0] === 'open'), false)
+
+  const proxyPrepared = await ipcMain.handlers.get('playback:prepare-proxy')(event, {
+    url: 'https://media.example.com/master.m3u8',
+    headers: { Referer: 'https://example.com/' }
+  })
+  assert.strictEqual(proxyPrepared.scopeId, 'proxy-scope')
+  assert.strictEqual(proxyPrepared.url, 'https://media.example.com/master.m3u8')
+  await assert.rejects(
+    () => ipcMain.handlers.get('playback:prepare-proxy')(event, { url: 'file:///tmp/video.m3u8', headers: {} }),
+    /http/i
+  )
+  assert.deepStrictEqual(
+    await ipcMain.handlers.get('playback:release-proxy')(event, { scopeId: 'abcdef0123456789' }),
+    { scopeId: 'abcdef0123456789' }
+  )
 
   assert.strictEqual(await ipcMain.handlers.get('app:window:get-opacity')(event), 0.8)
   await ipcMain.handlers.get('app:window:set-opacity')(event, { value: 0.7 })

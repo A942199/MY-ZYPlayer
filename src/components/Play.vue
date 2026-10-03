@@ -19,14 +19,6 @@
         </iframe>
       </div>
       <div class="more">
-        <span class="zy-svg" @click="otherEvent" v-show="name !== ''" :class="right.type === 'other' ? 'active' : ''">
-          <svg role="img" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" aria-labelledby="coloursIconTitle">
-            <title id="coloursIconTitle">换源</title>
-            <circle cx="12" cy="9" r="5"></circle>
-            <circle cx="9" cy="14" r="5"></circle>
-            <circle cx="15" cy="14" r="5"></circle>
-          </svg>
-        </span>
         <span class="zy-svg" @click="nextEvent" v-show="right.list.length > 1">
           <svg role="img" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" aria-labelledby="forwardIconTitle">
             <title id="forwardIconTitle">下一集</title>
@@ -122,7 +114,6 @@
           <span class="list-top-title" v-if="right.type === 'list'">播放列表</span>
           <span class="list-top-title" v-if="right.type === 'history'">历史记录</span>
           <span class="list-top-title" v-if="right.type === 'shortcut'">快捷键指南</span>
-          <span class="list-top-title" v-if="right.type === 'other'">同组其他源的视频</span>
           <span class="list-top-title" v-if="right.type === 'danmaku'">弹幕设置</span>
           <span class="list-top-title" v-if="right.type === 'subtitles'">字幕</span>
           <span class="list-top-close zy-svg" @click="closeListEvent">
@@ -145,10 +136,6 @@
           </ul>
           <ul v-if="right.type === 'shortcut'" class="list-shortcut"  v-clickoutside="closeListEvent">
             <li v-for="(m, n) in right.shortcut" :key="n"><span class="title">{{m.desc}} -- [ {{m.key}} ]</span></li>
-          </ul>
-          <ul v-if="right.type === 'other'" class="list-other" v-clickoutside="closeListEvent">
-            <li v-if="right.other.length === 0">无数据</li>
-            <li @click="otherItemEvent(m)" v-for="(m, n) in right.other" :key="n"><span class="title">{{m.name}} - [{{m.site.name}}]</span></li>
           </ul>
           <ul v-if="right.type === 'danmaku'" class="list-danmaku" v-clickoutside="closeListEvent">
             <li class="media-state">{{danmakuState.status}}<span v-if="danmakuState.count"> · {{danmakuState.count}} 条</span></li>
@@ -188,7 +175,7 @@ import Clickoutside from 'element-ui/src/utils/clickoutside'
 
 const { getPlatformApi } = require('../lib/platform/api')
 const VIDEO_DETAIL_CACHE = {}
-const { choosePlaylist } = require('../lib/playback/playlist')
+const { choosePlaylist, hasPlaybackHeaders } = require('../lib/playback/playlist')
 const { normalizeMediaEnhancementConfig, buildMediaIdentity } = require('../lib/player/media-enhancement')
 const { DanmakuController } = require('../lib/player/danmaku-controller')
 const { SubtitleController } = require('../lib/player/subtitle-controller')
@@ -213,14 +200,17 @@ const addPlayerBtn = function (event, svg, attrs) {
   }
 }
 
-const addPlayerView = function (event, tpl, attrs) {
+const addPlayerView = function (event, text, attrs) {
   const player = this
   const util = Player.util
   const rootEl = player.root
   const viewConfig = player.config[event]
   if (viewConfig) {
     const viewName = 'xg-view-' + event
-    const view = util.createDom(viewName, tpl, attrs || {}, viewName)
+    const view = util.createDom(viewName, '', attrs || {}, viewName)
+    const span = document.createElement('span')
+    span.textContent = String(text || '')
+    view.appendChild(span)
     rootEl.appendChild(view)
     const ev = ['click', 'touchend']
     ev.forEach(item => {
@@ -243,9 +233,7 @@ export default {
         type: '',
         list: [],
         history: [],
-        shortcut: [],
-        other: [],
-        currentTime: 0
+        shortcut: []
       },
       config: {
         id: 'xgplayer',
@@ -297,6 +285,9 @@ export default {
       danmakuController: null,
       subtitleController: null,
       mediaEnhancementMountToken: 0,
+      playbackGeneration: 0,
+      playbackHeaderScopeId: '',
+      playbackProxyScopeId: '',
       danmakuState: { enabled: true, status: '未匹配', count: 0, settings: {} },
       subtitleState: { enabled: false, status: '字幕已关闭', candidates: [], selectedIndex: -1 },
     }
@@ -426,49 +417,49 @@ export default {
       })
     },
     async getUrls () {
-      if (this.video.key === '') {
+      const generation = ++this.playbackGeneration
+      const sourceKey = this.video.key
+      if (sourceKey === '') {
         if (!this.video.iptv) this.state.showChannelList = true
         return false
       }
+      const videoId = this.video.info.id
       this.name = ''
       this.onlineUrl = ''
       if (this.timer !== null) {
         clearInterval(this.timer)
         this.timer = null
       }
-      if (this.xg && this.xg.hasStart) {
-        this.xg.pause()
-      }
+      if (this.xg && this.xg.hasStart) this.xg.pause()
 
       if (this.video.iptv) {
-        // 是直播源，直接播放
         this.playChannel(this.video.iptv)
-      } else {
-        this.state.showChannelList = false
-        const index = this.video.info.index || 0
-        const db = await history.find({ site: this.video.key, ids: this.video.info.id })
-        const key = this.video.key + '@' + this.video.info.id
-        let time = this.video.info.time
-        this.xg.removeAllProgressDot()
-        this.startPosition = { min: '00', sec: '00' }
-        this.endPosition = { min: '00', sec: '00' }
-        if (db) {
-          if (!time && db.index === index) { // 如果video.info.time没有设定的话，从历史中读取时间进度
-            time = db.time
-          }
-          if (!VIDEO_DETAIL_CACHE[key]) VIDEO_DETAIL_CACHE[key] = {}
-          if (!this.video.info.videoFlag) this.video.info.videoFlag = db.videoFlag
-          if (db.startPosition) { // 数据库保存的时长通过快捷键设置时可能为小数, this.startPosition为object对应输入框分秒转化到数据库后肯定为整数
-            VIDEO_DETAIL_CACHE[key].startPosition = db.startPosition
-            this.startPosition = { min: '' + parseInt(db.startPosition / 60), sec: '' + parseInt(db.startPosition % 60) }
-          }
-          if (db.endPosition) {
-            VIDEO_DETAIL_CACHE[key].endPosition = db.endPosition
-            this.endPosition = { min: '' + parseInt(db.endPosition / 60), sec: '' + parseInt(db.endPosition % 60) }
-          }
-        }
-        this.playVideo(index, time)
+        return
       }
+
+      this.state.showChannelList = false
+      const index = this.video.info.index || 0
+      const db = await history.find({ site: sourceKey, ids: videoId })
+      if (generation !== this.playbackGeneration || sourceKey !== this.video.key || videoId !== this.video.info.id) return
+      const key = sourceKey + '@' + videoId
+      let time = this.video.info.time
+      if (this.xg) this.xg.removeAllProgressDot()
+      this.startPosition = { min: '00', sec: '00' }
+      this.endPosition = { min: '00', sec: '00' }
+      if (db) {
+        if (!time && db.index === index) time = db.time
+        if (!VIDEO_DETAIL_CACHE[key]) VIDEO_DETAIL_CACHE[key] = {}
+        if (!this.video.info.videoFlag) this.video.info.videoFlag = db.videoFlag
+        if (db.startPosition) {
+          VIDEO_DETAIL_CACHE[key].startPosition = db.startPosition
+          this.startPosition = { min: '' + parseInt(db.startPosition / 60), sec: '' + parseInt(db.startPosition % 60) }
+        }
+        if (db.endPosition) {
+          VIDEO_DETAIL_CACHE[key].endPosition = db.endPosition
+          this.endPosition = { min: '' + parseInt(db.endPosition / 60), sec: '' + parseInt(db.endPosition % 60) }
+        }
+      }
+      await this.playVideo(index, time, generation, sourceKey, videoId)
     },
     disableChannel (channel) {
       const index = this.right.sources.indexOf(channel)
@@ -540,65 +531,82 @@ export default {
       this.playerType = playerType
       if (this.miniMode) { await this.saveMiniWindowState(); this.miniEvent() }
     },
-    playVideo (index = 0, time = 0) {
+    async playVideo (index = 0, time = 0, generation = this.playbackGeneration, sourceKey = this.video.key, videoId = this.video.info.id) {
+      if (generation !== this.playbackGeneration) return
       this.isLive = false
       this.isStar = false
       this.exportablePlaylist = false
-      this.fetchPlaylist().then(async (fullList) => {
+      try {
+        const fullList = await this.fetchPlaylist(generation, sourceKey, videoId)
+        if (!fullList || generation !== this.playbackGeneration) return
         if (this.playbackHeaderScopeId) {
           await getPlatformApi().playback.clearHeaders({ scopeId: this.playbackHeaderScopeId })
+          if (generation !== this.playbackGeneration) return
           this.playbackHeaderScopeId = ''
+        }
+        if (this.playbackProxyScopeId) {
+          await getPlatformApi().playback.releaseProxy({ scopeId: this.playbackProxyScopeId })
+          if (generation !== this.playbackGeneration) return
+          this.playbackProxyScopeId = ''
         }
         const selection = choosePlaylist(fullList, this.video.info.videoFlag, index)
         const playlist = selection.playlist
         index = selection.index
+        if (index < 0) throw new Error('当前播放源缺少对应集数')
         if (selection.fallback) this.video.info.videoFlag = selection.flag || ''
-        if (this.video.info.index !== index) this.video.info.index = index
         this.right.list = playlist
 
         const selected = playlist[index]
-        let url = selected.includes('$') ? selected.split('$')[1] : selected
+        let url = selected.includes('$') ? selected.slice(selected.indexOf('$') + 1) : selected
         if (!url) throw new Error('当前剧集没有播放地址')
 
-        const resolved = await zy.resolvePlay(this.video.key, url)
+        const resolved = await zy.resolvePlay(sourceKey, url)
+        if (generation !== this.playbackGeneration) return
         if (resolved) {
-          if (!resolved.url) throw new Error('该源未返回可播放地址')
-          url = resolved.url
-          if (resolved.headers && resolved.headers.length) {
-            const playbackScope = await getPlatformApi().playback.setHeaders({
-              url,
-              headers: resolved.headers
-            })
-            this.playbackHeaderScopeId = playbackScope && playbackScope.scopeId ? playbackScope.scopeId : ''
+          const candidates = (Array.isArray(resolved.urls) ? resolved.urls : [resolved.url]).map(value => String(value || '').trim()).filter(Boolean)
+          if (!candidates.length) throw new Error('该源未返回可播放地址')
+          url = candidates[0]
+          if (candidates.length > 1) {
+            for (const candidateUrl of candidates) {
+              const probe = await getPlatformApi().douban.probe({ url: candidateUrl, headers: resolved.headers || [], timeout: 2500 })
+              if (generation !== this.playbackGeneration) return
+              if (probe && probe.ok) {
+                url = candidateUrl
+                break
+              }
+            }
+          }
+          if (hasPlaybackHeaders(resolved.headers)) {
+            const playbackProxy = await getPlatformApi().playback.prepareProxy({ url, headers: resolved.headers })
+            if (generation !== this.playbackGeneration) {
+              if (playbackProxy && playbackProxy.scopeId) await getPlatformApi().playback.releaseProxy({ scopeId: playbackProxy.scopeId })
+              return
+            }
+            if (!playbackProxy || !playbackProxy.url || !playbackProxy.scopeId) throw new Error('媒体代理初始化失败')
+            this.playbackProxyScopeId = playbackProxy.scopeId
+            url = playbackProxy.url
           }
         }
 
         const mediaPath = (() => {
-          try {
-            return new window.URL(url).pathname
-          } catch (e) {
-            return url.split('?')[0]
-          }
+          try { return new window.URL(url).pathname } catch (e) { return url.split('?')[0] }
         })()
         if (playlist.every(e => {
-          const itemUrl = e.includes('$') ? e.split('$')[1] : e
+          const itemUrl = e.includes('$') ? e.slice(e.indexOf('$') + 1) : e
           if (itemUrl.startsWith('myvideo-play:')) return false
-          try {
-            return new window.URL(itemUrl).pathname.endsWith('.m3u8')
-          } catch (e) {
-            return itemUrl.split('?')[0].endsWith('.m3u8')
-          }
+          try { return new window.URL(itemUrl).pathname.endsWith('.m3u8') } catch (error) { return itemUrl.split('?')[0].endsWith('.m3u8') }
         })) this.exportablePlaylist = true
 
         const normalizedMediaPath = mediaPath.toLowerCase()
         if (!normalizedMediaPath.endsWith('.m3u8') && !normalizedMediaPath.endsWith('.mp4')) {
-          const currentSite = await sites.find({ key: this.video.key })
+          const currentSite = await sites.find({ key: sourceKey })
+          if (generation !== this.playbackGeneration) return
           if (!currentSite) throw new Error('当前播放源已不存在')
-          this.$message.info('即将调用解析接口播放，请等待...')
           const configuredParser = String(currentSite.jiexiUrl || '').trim()
           const useDefaultParser = !configuredParser || ['default', '默认'].includes(configuredParser.toLowerCase())
           const parserBase = useDefaultParser ? String(this.setting.defaultParseURL || '').trim() : configuredParser
           if (!parserBase) throw new Error('未配置解析接口')
+          this.$message.info('即将调用解析接口播放，请等待...')
           this.destroyMediaEnhancements()
           this.onlineUrl = parserBase + url
           this.videoPlaying('online')
@@ -607,22 +615,26 @@ export default {
 
         const extMatch = normalizedMediaPath.match(/\.\w+?$/)
         if (!extMatch) throw new Error('无法识别媒体格式')
-        this.getPlayer(extMatch[0].slice(1))
+        await this.getPlayer(extMatch[0].slice(1))
+        if (generation !== this.playbackGeneration || sourceKey !== this.video.key || videoId !== this.video.info.id) return
         this.xg.src = url
         this.scheduleMediaEnhancementMount(selected)
-        const key = this.video.key + '@' + this.video.info.id
+        const key = sourceKey + '@' + videoId
         const startTime = (VIDEO_DETAIL_CACHE[key] && VIDEO_DETAIL_CACHE[key].startPosition) || 0
         this.xg.play()
         setTimeout(() => {
+          if (generation !== this.playbackGeneration) return
           const root = document.getElementById('xgplayer')
           if (root && !root.querySelector('video')) {
-            this.getPlayer(this.playerType, true)
-            this.getUrls()
+            this.getPlayer(this.playerType, true).then(() => {
+              if (generation === this.playbackGeneration) this.getUrls()
+            })
           }
         }, 1000)
         if (document.querySelector('xg-btn-showhistory')) document.querySelector('xg-btn-showhistory').style.display = 'block'
         if (document.querySelector('.xgplayer-playbackrate')) document.querySelector('.xgplayer-playbackrate').style.display = 'inline-block'
         this.xg.once('playing', () => {
+          if (generation !== this.playbackGeneration) return
           this.xg.currentTime = time > startTime ? time : startTime
           if (VIDEO_DETAIL_CACHE[key] && VIDEO_DETAIL_CACHE[key].startPosition) this.xg.addProgressDot(VIDEO_DETAIL_CACHE[key].startPosition, '片头')
           if (VIDEO_DETAIL_CACHE[key] && VIDEO_DETAIL_CACHE[key].endPosition) this.xg.addProgressDot(this.xg.duration - VIDEO_DETAIL_CACHE[key].endPosition, '片尾')
@@ -630,36 +642,37 @@ export default {
         this.videoPlaying()
         this.skipendStatus = false
         this.xg.once('ended', () => {
+          if (generation !== this.playbackGeneration) return
           if (playlist.length > 1 && (playlist.length - 1 > index)) {
             this.video.info.time = 0
             this.video.info.index++
           }
           this.xg.off('ended')
         })
-      }).catch(err => {
+      } catch (err) {
+        if (generation !== this.playbackGeneration) return
         console.error('播放列表或地址解析失败:', err)
-        this.$message.error('播放地址可能已失效，请换源并调整收藏：' + err.message)
+        this.$message.error('当前播放源地址可能已失效：' + err.message)
         this.name = this.video.info.name
         this.updateStar()
-        this.otherEvent()
-      })
+      }
     },
-    async fetchPlaylist () {
-      const cacheKey = this.video.key + '@' + this.video.info.id
+    async fetchPlaylist (generation = this.playbackGeneration, sourceKey = this.video.key, videoId = this.video.info.id) {
+      const cacheKey = sourceKey + '@' + videoId
       const cached = VIDEO_DETAIL_CACHE[cacheKey]
       if (cached && Array.isArray(cached.list) && cached.list.length) {
-        this.name = cached.name || this.video.info.name
+        if (generation === this.playbackGeneration) this.name = cached.name || this.video.info.name
         return cached.list
       }
 
       let detail = this.DetailCache[cacheKey]
       if (!detail) {
-        detail = await zy.detail(this.video.key, this.video.info.id)
+        detail = await zy.detail(sourceKey, videoId)
+        if (generation !== this.playbackGeneration) return null
         this.DetailCache[cacheKey] = detail
       }
-      if (!detail || !Array.isArray(detail.fullList) || !detail.fullList.length) {
-        throw new Error('源未返回播放列表')
-      }
+      if (!detail || !Array.isArray(detail.fullList) || !detail.fullList.length) throw new Error('源未返回播放列表')
+      if (generation !== this.playbackGeneration) return null
 
       this.name = detail.name || this.video.info.name
       VIDEO_DETAIL_CACHE[cacheKey] = Object.assign(VIDEO_DETAIL_CACHE[cacheKey] || {}, {
@@ -982,33 +995,6 @@ export default {
         this.$message.warning('删除历史记录失败, 错误信息: ' + err)
       })
     },
-    async getOtherSites () {
-      this.right.other = []
-      const currentSite = await sites.find({ key: this.video.key })
-      if (!currentSite) return
-      sites.all().then(sitesRes => {
-        // 排除已关闭的源和当前源
-        for (const siteItem of sitesRes.filter(x => x.isActive && x.group === currentSite.group && x.key !== this.video.key)) {
-          zy.search(siteItem.key, this.name).then(searchRes => {
-            const type = Object.prototype.toString.call(searchRes)
-            if (type === '[object Array]') {
-              searchRes.forEach(async item => {
-                const detailRes = item
-                detailRes.key = siteItem.key
-                detailRes.site = siteItem
-                this.right.other.push(detailRes)
-              })
-            }
-            if (type === '[object Object]') {
-              const detailRes = searchRes
-              detailRes.key = siteItem.key
-              detailRes.site = siteItem
-              this.right.other.push(detailRes)
-            }
-          })
-        }
-      })
-    },
     mediaServiceConfig () {
       return this.mediaEnhancementConfig.providers
     },
@@ -1164,20 +1150,6 @@ export default {
     subtitleProviderName (provider) {
       const names = { jimaku: 'Jimaku', assrt: 'ASSRT', opensubtitles: 'OpenSubtitles', subdl: 'SubDL' }
       return names[provider] || provider || '字幕源'
-    },
-    otherEvent (m) {
-      if (!this.video.iptv) {
-        this.right.type = 'other'
-        this.getOtherSites()
-        this.right.currentTime = this.xg.currentTime
-      } else {
-        this.right.type = 'sources'
-      }
-      this.right.show = true
-    },
-    async otherItemEvent (e) {
-      // 打开当前播放的剧集index, 定位到当前的时间
-      this.video = { key: e.key, info: { id: e.id, name: e.name, site: e.site, index: this.video.info.index, time: this.right.currentTime } }
     },
     mtEvent () {
       if (this.setting.shortcutModified) this.currentShortcutList.forEach(e => mt.unbind(e.key))
@@ -1371,6 +1343,14 @@ export default {
         this.state.showList = true
       }
     },
+    appendSafeMenuItem (ul, text, index, selected = false) {
+      const li = document.createElement('li')
+      li.textContent = String(text || '')
+      li.title = String(text || '')
+      if (Number.isInteger(index)) li.dataset.index = String(index)
+      if (selected) li.classList.add('selected')
+      ul.appendChild(li)
+    },
     refreshList () {
       let ul = document.querySelector('xg-btn-showlist ul')
       if (!ul) {
@@ -1378,47 +1358,26 @@ export default {
         document.querySelector('xg-btn-showlist').appendChild(ul)
         ul.addEventListener('click', (ev) => {
           ev = ev || window.event
-          const target = ev.target || ev.srcElement // target表示在事件冒泡中触发事件的源元素，在IE中是srcElement
-          if (target.nodeName.toLowerCase() === 'li') {
-            this.listItemEvent(parseInt(target.dataset.index))
-          }
+          const target = ev.target || ev.srcElement
+          const index = Number(target && target.dataset && target.dataset.index)
+          if (target && target.nodeName.toLowerCase() === 'li' && Number.isInteger(index)) this.listItemEvent(index)
         })
       }
       ul.style.display = 'none'
-      let li = ''
+      ul.replaceChildren()
       if (this.video.iptv) {
-        // 直播频道列表
-        let index = 0
-        this.channelList.forEach(e => {
-          if (e.prefer === this.video.iptv.id) {
-            li += `<li class="selected" data-index="${index}" title="${e.name}">${e.name}</li>`
-          } else {
-            li += `<li data-index="${index}" title="${e.name}">${e.name}</li>`
-          }
-          index += 1
-        })
-      } else {
-        if (this.right.list.length === 0) {
-          li = '<li>无数据</li>'
-        } else {
-          for (let index = 0; index < this.right.list.length; index++) {
-            const item = this.right.list[index]
-            const num = item.split('$')
-            let title
-            if (num.length > 1) {
-              title = num[0]
-            } else {
-              title = `第${(index + 1)}集`
-            }
-            if (index === this.video.info.index) {
-              li += `<li class="selected" data-index="${index}" title="${title}">${title}</li>`
-            } else {
-              li += `<li data-index="${index}" title="${title}">${title}</li>`
-            }
-          }
-        }
+        this.channelList.forEach((channel, index) => this.appendSafeMenuItem(ul, channel.name, index, channel.prefer === this.video.iptv.id))
+        return
       }
-      ul.innerHTML = li
+      if (!this.right.list.length) {
+        this.appendSafeMenuItem(ul, '无数据')
+        return
+      }
+      this.right.list.forEach((item, index) => {
+        const parts = String(item || '').split('$')
+        const title = parts.length > 1 ? parts[0] : `第${index + 1}集`
+        this.appendSafeMenuItem(ul, title, index, index === this.video.info.index)
+      })
     },
     toggleHistory () {
       if (this.state.showHistory) {
@@ -1438,29 +1397,23 @@ export default {
         document.querySelector('xg-btn-showhistory').appendChild(ul)
         ul.addEventListener('click', (ev) => {
           ev = ev || window.event
-          const target = ev.target || ev.srcElement // target表示在事件冒泡中触发事件的源元素，在IE中是srcElement
-          if (target.nodeName.toLowerCase() === 'li') {
-            this.historyItemEvent(this.right.history[parseInt(target.dataset.index)])
-          }
+          const target = ev.target || ev.srcElement
+          const index = Number(target && target.dataset && target.dataset.index)
+          if (target && target.nodeName.toLowerCase() === 'li' && Number.isInteger(index)) this.historyItemEvent(this.right.history[index])
         })
       }
       ul.style.display = 'none'
-      let li = ''
-      if (this.right.history.length === 0) {
-        li = '<li>无数据</li>'
-      } else if (!this.video.iptv) {
-        window.historyItemEvent = this.historyItemEvent.bind(this)
-        for (let index = 0; index < this.right.history.length; index++) {
-          const item = this.right.history[index]
-          const text = `【${item.site}】${item.name} 第${item.index + 1}集`
-          if (this.video.info.id === item.ids) {
-            li += `<li class="selected" data-index="${index}" title="${text}">${text}</li>`
-          } else {
-            li += `<li data-index="${index}" title="${text}">${text}</li>`
-          }
-        }
+      ul.replaceChildren()
+      if (!this.right.history.length) {
+        this.appendSafeMenuItem(ul, '无数据')
+        return
       }
-      ul.innerHTML = li
+      if (!this.video.iptv) {
+        this.right.history.forEach((item, index) => {
+          const text = `【${item.site}】${item.name} 第${item.index + 1}集`
+          this.appendSafeMenuItem(ul, text, index, this.video.info.id === item.ids)
+        })
+      }
     },
     async getChannelList () {
       await channelList.all().then(res => {
@@ -1595,6 +1548,7 @@ export default {
       })
     },
     videoStop () {
+      this.playbackGeneration += 1
       this.destroyMediaEnhancements()
       if (this.xg.fullscreen) {
         this.xg.exitFullscreen()
@@ -1647,7 +1601,7 @@ export default {
         } else {
           title = `${that.name}`
         }
-        addPlayerView.bind(this, 'videoTitle', `<span>${title}</span>`, {})()
+        addPlayerView.bind(this, 'videoTitle', title, {})()
       })
     },
     showShortcutEvent () {
@@ -1678,12 +1632,17 @@ export default {
     this.minMaxEvent()
   },
   beforeDestroy () {
+    this.playbackGeneration += 1
     clearInterval(this.timer)
     if (this.windowMinimizeUnsubscribe) this.windowMinimizeUnsubscribe()
     if (this.windowRestoreUnsubscribe) this.windowRestoreUnsubscribe()
     if (this.playbackHeaderScopeId) {
       getPlatformApi().playback.clearHeaders({ scopeId: this.playbackHeaderScopeId })
       this.playbackHeaderScopeId = ''
+    }
+    if (this.playbackProxyScopeId) {
+      getPlatformApi().playback.releaseProxy({ scopeId: this.playbackProxyScopeId })
+      this.playbackProxyScopeId = ''
     }
     this.destroyMediaEnhancements()
   }

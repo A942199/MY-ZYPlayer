@@ -102,6 +102,32 @@ async function testTvImport () {
   assert.deepStrictEqual(merged.map(site => site.id), merged.map((site, index) => index + 1))
 }
 
+function testCardIdentityMetadata () {
+  const normalized = myvideo.normalizeCard({
+    vod_id: '104284',
+    vod_name: '肖申克的救赎',
+    vod_pubdate: '1994-09-10',
+    type_name: '电影',
+    vod_director: '弗兰克·德拉邦特',
+    vod_actor: '蒂姆·罗宾斯',
+    vod_area: '美国',
+    vod_lang: '英语',
+    vod_douban_id: '1292052',
+    ext: { id: 104284 }
+  })
+  assert.strictEqual(normalized.year, '1994-09-10')
+  assert.strictEqual(normalized.type, '电影')
+  assert.strictEqual(normalized.director, '弗兰克·德拉邦特')
+  assert.strictEqual(normalized.actor, '蒂姆·罗宾斯')
+  assert.strictEqual(normalized.area, '美国')
+  assert.strictEqual(normalized.language, '英语')
+  assert.strictEqual(normalized.doubanId, '1292052')
+  const encoded = JSON.parse(decodeURIComponent(normalized.id.slice('myvideo-id:'.length)))
+  assert.strictEqual(encoded.year, '1994-09-10')
+  assert.strictEqual(encoded.type, '电影')
+  assert.strictEqual(encoded.director, '弗兰克·德拉邦特')
+}
+
 async function testNavigationCategories () {
   const tabs = [
     { name: '日番', ext: { id: 'jp' } },
@@ -182,7 +208,7 @@ async function testRuntime () {
   ].join('\n')
 
   const source = { key: 'test', name: 'test', ext: 'memory://test.js', network: 'native' }
-  const runtime = new SourceWorker(source, code, { workerPath, modulePath, callTimeout: 2000 })
+  const runtime = new SourceWorker(source, code, { workerPath, modulePath, callTimeout: 2000, allowPrivateNetwork: true })
   try {
     const config = await runtime.call('getConfig')
     assert.strictEqual(config.title, 'test')
@@ -264,6 +290,7 @@ async function testJSEncryptCompat () {
 async function main () {
   await testCms()
   await testTvImport()
+  testCardIdentityMetadata()
   await testNavigationCategories()
   await testRuntime()
   await testJSEncryptCompat()

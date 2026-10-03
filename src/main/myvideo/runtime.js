@@ -24,6 +24,16 @@ function parseCookie (header) {
   return [first.slice(0, index).trim(), first.slice(index + 1).trim()]
 }
 
+function stripSensitiveHeadersForRedirect (headers, fromUrl, toUrl) {
+  const next = { ...(headers || {}) }
+  if (new URL(fromUrl).origin === new URL(toUrl).origin) return next
+  const sensitive = /^(?:authorization|proxy-authorization|cookie2?|api-key|x-api-key|x-appsecret|x-app-secret)$/i
+  Object.keys(next).forEach(key => {
+    if (sensitive.test(key)) delete next[key]
+  })
+  return next
+}
+
 class NativeHttpClient {
   constructor (options = {}) {
     this.cookies = new Map()
@@ -59,10 +69,11 @@ class NativeHttpClient {
     let currentUrl = (await this.assertTarget(url)).toString()
     let currentMethod = String(method || 'GET').toUpperCase()
     let currentBody = body
+    let currentHeaders = { ...(options.headers || {}) }
     const maxRedirects = options.maxRedirects === undefined ? 8 : Math.max(0, Number(options.maxRedirects) || 0)
 
     for (let redirectCount = 0; ; redirectCount++) {
-      const headers = { ...(options.headers || {}) }
+      const headers = { ...currentHeaders }
       if (options.credentials === 'include' || options.withCredentials) {
         const cookie = this.cookieHeader(currentUrl)
         if (cookie && !headers.Cookie && !headers.cookie) headers.Cookie = cookie
@@ -87,7 +98,9 @@ class NativeHttpClient {
       if (redirecting) {
         if (redirectCount >= maxRedirects) throw new Error('Too many redirects')
         const next = new URL(Array.isArray(location) ? location[0] : location, currentUrl)
-        currentUrl = (await this.assertTarget(next.toString())).toString()
+        const nextUrl = (await this.assertTarget(next.toString())).toString()
+        currentHeaders = stripSensitiveHeadersForRedirect(currentHeaders, currentUrl, nextUrl)
+        currentUrl = nextUrl
         if (response.status === 303 || ((response.status === 301 || response.status === 302) && currentMethod === 'POST')) {
           currentMethod = 'GET'
           currentBody = undefined
@@ -215,6 +228,7 @@ class SourceWorker {
         source,
         code,
         modulePath: options.modulePath || getModulePath(),
+        allowPrivateNetwork: options.allowPrivateNetwork === true,
         allowDynamicCode: policy.enabled,
         integrity: this.diagnostics
       },
@@ -326,6 +340,13 @@ class RuntimeManager {
       this.activeRuntimeKeys.delete(baseKey)
     }
 
+    const configuredHash = String(source.sha256 || (source.integrity && source.integrity.sha256) || '').trim().toLowerCase()
+    if (source.integrityRequired === true && !configuredHash) {
+      const error = new Error('Source script integrity pin is required but unavailable')
+      error.code = 'MYVIDEO_INTEGRITY_REQUIRED'
+      throw error
+    }
+
     await assertPublicHttpTarget(source.ext, {
       lookup: this.lookup,
       allowPrivateNetwork: this.allowPrivateNetwork
@@ -341,7 +362,7 @@ class RuntimeManager {
 
     const code = String(response.data || '')
     const scriptHash = sha256Text(code)
-    const expectedHash = String(source.sha256 || (source.integrity && source.integrity.sha256) || '').trim().toLowerCase()
+    const expectedHash = configuredHash
     if (expectedHash && !/^[a-f0-9]{64}$/.test(expectedHash)) throw new Error('Invalid source SHA-256 pin')
     if (expectedHash && expectedHash !== scriptHash) {
       const error = new Error('Source SHA-256 mismatch')
@@ -354,6 +375,7 @@ class RuntimeManager {
       modulePath: this.modulePath,
       workerPath: this.workerPath,
       callTimeout: this.callTimeout,
+      allowPrivateNetwork: this.allowPrivateNetwork,
       scriptHash,
       loadedAt: Date.now()
     })
@@ -397,7 +419,28 @@ class RuntimeManager {
       throw new Error('Unable to load source config, HTTP ' + response.status)
     }
     this.clear()
-    return typeof response.data === 'string' ? JSON.parse(response.data) : response.data
+    const payload = typeof response.data === 'string' ? JSON.parse(response.data) : response.data
+    const rows = Array.isArray(payload) ? payload : (Array.isArray(payload && payload.sites) ? payload.sites : [])
+    let cursor = 0
+    const workers = Array.from({ length: Math.min(4, Math.max(1, rows.length)) }, async () => {
+      while (cursor < rows.length) {
+        const site = rows[cursor++]
+        if (!site || Number(site.type) !== 3 || !/^https?:\/\//i.test(String(site.ext || ''))) continue
+        site.integrityRequired = true
+        const existingHash = String(site.sha256 || (site.integrity && site.integrity.sha256) || '').trim().toLowerCase()
+        if (/^[a-f0-9]{64}$/.test(existingHash)) continue
+        try {
+          const script = await this.loader.get(site.ext, { timeout: DEFAULT_TIMEOUT, maxBytes: 4 * 1024 * 1024 })
+          if (script.status < 200 || script.status >= 300) throw new Error('HTTP ' + script.status)
+          site.sha256 = sha256Text(String(script.data || ''))
+          delete site.integrityError
+        } catch (error) {
+          site.integrityError = String(error && error.message || error || 'Unable to pin source script').slice(0, 300)
+        }
+      }
+    })
+    await Promise.all(workers)
+    return payload
   }
 }
 
@@ -448,13 +491,6 @@ function clearPlaybackHeaderScope (payload = {}) {
   return clearPlaybackHeaders(payload.scopeId)
 }
 
-function registerMyVideoIpc (ipcMain) {
-  ipcMain.handle('myvideo:call', (event, payload) => callMyVideo(payload))
-  ipcMain.handle('myvideo:load-config', (event, url) => loadMyVideoConfig(url))
-  ipcMain.handle('myvideo:clear-runtimes', () => clearMyVideoRuntimes())
-  ipcMain.handle('myvideo:set-playback-headers', (event, payload) => setPlaybackHeaders(payload))
-}
-
 module.exports = {
   NativeHttpClient,
   SourceWorker,
@@ -467,7 +503,6 @@ module.exports = {
   clearMyVideoRuntimes,
   setPlaybackHeaders,
   clearPlaybackHeaderScope,
-  registerMyVideoIpc,
   registerPlaybackHeaders,
   clearPlaybackHeaders,
   applyPlaybackHeaders,

@@ -15,6 +15,24 @@ function platformGet (url, options = {}) {
   })
 }
 
+function cmsSearchUrl (api, keyword) {
+  const target = new URL(String(api || ''))
+  target.searchParams.set('wd', String(keyword || ''))
+  return target.toString()
+}
+
+function mediaExtension (entry) {
+  const text = String(entry || '')
+  const raw = text.includes('$') ? text.slice(text.indexOf('$') + 1) : text
+  try {
+    const match = new URL(raw).pathname.match(/\.([a-z0-9]+)$/i)
+    return match ? match[1].toLowerCase() : ''
+  } catch (error) {
+    const match = raw.split(/[?#]/, 1)[0].match(/\.([a-z0-9]+)$/i)
+    return match ? match[1].toLowerCase() : ''
+  }
+}
+
 const zy = {
   xmlConfig: { // XML 转 JSON 配置
     trimValues: true,
@@ -26,11 +44,9 @@ const zy = {
   getSite (key) {
     return new Promise((resolve, reject) => {
       sites.all().then(res => {
-        for (const i of res) {
-          if (key === i.key) {
-            resolve(i)
-          }
-        }
+        const site = res.find(item => key === item.key)
+        if (site) resolve(site)
+        else reject(Object.assign(new Error('Source not found: ' + key), { code: 'SOURCE_NOT_FOUND' }))
       }).catch(err => {
         reject(err)
       })
@@ -164,7 +180,7 @@ const zy = {
           myvideo.search(site, wd).then(resolve).catch(reject)
           return
         }
-        const url = `${site.api}?wd=${encodeURI(wd)}`
+        const url = cmsSearchUrl(site.api, wd)
         platformGet(url, { timeout: 3000 }).then(res => {
           const data = res.data
           const jsondata = cms.parse(data)
@@ -208,7 +224,7 @@ const zy = {
           }).catch(reject)
           return
         }
-        const url = `${site.api}?wd=${encodeURI(wd)}`
+        const url = cmsSearchUrl(site.api, wd)
         platformGet(url, { timeout: 3000 }).then(res => {
           const data = res.data
           const jsondata = cms.parse(data)
@@ -252,17 +268,21 @@ const zy = {
           const data = res.data
           const jsondata = cms.parse(data)
           const videoList = cms.asArray(jsondata?.list?.video)[0]
-          if (!videoList) resolve()
+          if (!videoList) return resolve()
           // Parse video lists
           let fullList = []
           let index = 0
           const supportedFormats = ['m3u8', 'mp4']
-          const dd = videoList.dl.dd
+          const dd = videoList?.dl?.dd
+          if (!dd) {
+            videoList.fullList = []
+            return resolve(videoList)
+          }
           const type = Object.prototype.toString.call(dd)
           if (type === '[object Array]') {
             for (const i of dd) {
               i._t = i._t.replace(/\$+/g, '$')
-              const ext = Array.from(new Set(...i._t.split('#').map(e => e.includes('$') ? e.split('$')[1].match(/\.\w+?$/) : e.match(/\.\w+?$/)))).map(e => e.slice(1))
+              const ext = [...new Set(i._t.split('#').map(mediaExtension).filter(Boolean))]
               if (ext.length && ext.length <= supportedFormats.length && ext.every(e => supportedFormats.includes(e))) {
                 if (ext.length === 1) {
                   i._flag = ext[0]
@@ -477,11 +497,20 @@ const zy = {
   getDefaultSites (url) {
     return myvideo.loadConfig(url).then(payload => myvideo.importSites(payload, url))
   },
-  resolvePlay (key, marker) {
-    return this.getSite(key).then(site => {
-      if (!myvideo.isSource(site)) return null
-      return myvideo.play(site, marker)
-    })
+  async resolvePlay (key, marker) {
+    const site = await this.getSite(key)
+    if (!myvideo.isSource(site)) return null
+    const result = await myvideo.play(site, marker)
+    if (!result) return null
+    const urls = [...new Set((Array.isArray(result.urls) ? result.urls : [result.url]).filter(Boolean))]
+    if (urls.length <= 1) return { ...result, url: urls[0] || result.url || '' }
+    for (const candidate of urls.slice(0, 4)) {
+      try {
+        const probe = await getPlatformApi().douban.probe({ url: candidate, headers: result.headers || [], timeout: 2500 })
+        if (probe && probe.ok) return { ...result, url: candidate, selectedByProbe: true }
+      } catch (error) {}
+    }
+    return { ...result, url: urls[0] || '' }
   },
   isPageOver (key, tid, pageNo) {
     return myvideo.isPageOver(key, tid, pageNo)

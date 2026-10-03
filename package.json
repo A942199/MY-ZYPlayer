@@ -6,7 +6,7 @@
     "serve": "vue-cli-service serve",
     "build": "vue-cli-service build",
     "lint": "vue-cli-service lint",
-    "test": "node tests/myvideo.test.js && node tests/playback.test.js && node tests/media-enhancement.test.js && node tests/danmaku-matching.test.js && node tests/companion-runtime.test.js",
+    "test": "node tests/myvideo-security.test.js && node tests/myvideo.test.js && node tests/playback.test.js && node tests/playback-network-policy.test.js && node tests/playback-media-proxy.test.js && node tests/ipc-contract.test.js && node tests/media-enhancement.test.js && node tests/danmaku-matching.test.js && node tests/companion-runtime.test.js",
     "test:integration": "node tests/yuan-integration.js",
     "test:matrix": "node tests/yuan-matrix.js",
     "test:e2e": "node tests/electron-e2e.js",
@@ -20,7 +20,7 @@
     "electron:generate-icons": "electron-icon-builder --input=./public/icon.png --output=build --flatten",
     "release": "npm run build:worker && npm run prepare:danmu && vue-cli-service electron:build -p always",
     "dist": "npm run build:worker && npm run prepare:danmu && vue-cli-service electron:build --win --ia32",
-    "test:douban": "node tests/douban.test.js",
+    "test:douban": "node tests/douban.test.js && node tests/douban-runtime-hardening.test.js && node tests/douban-scanner.test.js",
     "test:douban:integration": "node tests/douban-integration.js",
     "test:douban:match-e2e": "node tests/douban-match-e2e.js"
   },

@@ -166,6 +166,16 @@ function decodeBody (buffer, encoding) {
   return buffer
 }
 
+function redirectHeaders (headers, fromUrl, toUrl) {
+  const next = { ...(headers || {}) }
+  if (new URL(fromUrl).origin === new URL(toUrl).origin) return next
+  const sensitive = /^(?:authorization|proxy-authorization|cookie2?|api-key|x-api-key|x-appsecret|x-app-secret)$/i
+  Object.keys(next).forEach(key => {
+    if (sensitive.test(key)) delete next[key]
+  })
+  return next
+}
+
 function requestBuffer (targetUrl, options = {}, redirects = 0) {
   return new Promise((resolve, reject) => {
     if (redirects > 4) return reject(new Error('请求重定向过多'))
@@ -191,7 +201,12 @@ function requestBuffer (targetUrl, options = {}, redirects = 0) {
           return reject(new Error('禁止跳转到未知字幕/弹幕域名'))
         }
         res.resume()
-        return requestBuffer(next.href, options, redirects + 1).then(resolve).catch(reject)
+        const nextOptions = { ...options, headers: redirectHeaders(options.headers, target, next) }
+        if (status === 303) {
+          nextOptions.method = 'GET'
+          nextOptions.body = null
+        }
+        return requestBuffer(next.href, nextOptions, redirects + 1).then(resolve).catch(reject)
       }
       const chunks = []
       let bytes = 0
@@ -1053,13 +1068,6 @@ function initializeMediaEnhancementRuntime () {
   setLocalDanmuCacheResolver(readLocalDanmuAnimeCache)
 }
 
-function registerMediaEnhancementIpc (ipcMain) {
-  initializeMediaEnhancementRuntime()
-  ipcMain.handle('media-enhancement:danmaku-resolve', (event, payload) => resolveDanmaku(payload))
-  ipcMain.handle('media-enhancement:subtitle-resolve', (event, payload) => resolveSubtitles(payload))
-  ipcMain.handle('media-enhancement:subtitle-fetch', (event, payload) => fetchSubtitle(payload))
-}
-
 module.exports = {
   normalizeLocalConfig,
   mergeProviderSecrets,
@@ -1077,6 +1085,5 @@ module.exports = {
   resolveDanmaku,
   resolveSubtitles,
   fetchSubtitle,
-  initializeMediaEnhancementRuntime,
-  registerMediaEnhancementIpc
+  initializeMediaEnhancementRuntime
 }

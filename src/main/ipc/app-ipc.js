@@ -125,6 +125,26 @@ function registerAppIpc ({ ipcMain, getMainWindow, services = {} }) {
   handle('myvideo:clear-runtimes', null, 'sourceRuntime', 'clear')
   handle('myvideo:set-playback-headers', plainKeys(['url', 'headers', 'pathPrefix']), 'playback', 'setHeaders')
   handle('playback:clear-headers', plainKeys(['scopeId']), 'playback', 'clearHeaders')
+  handle('playback:prepare-proxy', payload => {
+    assertAllowedKeys(payload, ['url', 'headers'])
+    const url = assertHttpUrl(payload.url, 'url').toString()
+    const headers = payload.headers == null ? {} : payload.headers
+    if (!Array.isArray(headers)) assertPlainObject(headers, 'headers')
+    else {
+      const size = Buffer.byteLength(JSON.stringify(headers), 'utf8')
+      if (size > 64 * 1024) throw new RangeError('headers are too large')
+      headers.forEach(row => {
+        if (typeof row === 'string') return
+        if (!row || typeof row !== 'object' || Array.isArray(row)) throw new TypeError('headers array entries must be strings or objects')
+      })
+    }
+    return { url, headers }
+  }, 'playback', 'prepareProxy')
+  handle('playback:release-proxy', payload => {
+    assertAllowedKeys(payload, ['scopeId'])
+    if (typeof payload.scopeId !== 'string' || !/^[a-f0-9]{16,128}$/i.test(payload.scopeId)) throw new TypeError('scopeId is invalid')
+    return payload
+  }, 'playback', 'releaseProxy')
 
   handle('media-enhancement:danmaku-resolve', plain, 'media', 'resolveDanmaku')
   handle('media-enhancement:subtitle-resolve', plain, 'media', 'resolveSubtitles')

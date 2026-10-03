@@ -6,6 +6,8 @@ const http = require('http')
 const https = require('https')
 const zlib = require('zlib')
 const crypto = require('crypto')
+const dns = require('dns').promises
+const net = require('net')
 const { URL, URLSearchParams } = require('url')
 
 if (workerData.modulePath) {
@@ -88,6 +90,50 @@ function compatibleResponseHeaders (headers) {
   return result
 }
 
+function blockedIpv4 (address) {
+  const parts = String(address || '').split('.').map(Number)
+  if (parts.length !== 4 || parts.some(value => !Number.isInteger(value) || value < 0 || value > 255)) return false
+  const [a, b] = parts
+  return a === 0 || a === 10 || a === 127 ||
+    (a === 169 && b === 254) ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    (a >= 224)
+}
+
+function blockedAddress (address) {
+  const value = String(address || '').toLowerCase()
+  if (net.isIP(value) === 4) return blockedIpv4(value)
+  if (net.isIP(value) === 6) {
+    if (value === '::1' || value === '::' || value.startsWith('fc') || value.startsWith('fd') || value.startsWith('fe8') || value.startsWith('fe9') || value.startsWith('fea') || value.startsWith('feb')) return true
+    const mapped = value.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/)
+    return mapped ? blockedIpv4(mapped[1]) : false
+  }
+  return false
+}
+
+async function assertWorkerTarget (rawUrl) {
+  let target
+  try { target = new URL(rawUrl) } catch (error) { throw new Error('Source network target is invalid') }
+  if (!['http:', 'https:'].includes(target.protocol)) throw new Error('Source network target must use HTTP(S)')
+  if (workerData.allowPrivateNetwork === true) return target
+  const host = target.hostname.toLowerCase()
+  if (host === 'localhost' || host.endsWith('.localhost') || blockedAddress(host)) throw new Error('Source private/loopback network access is blocked')
+  const addresses = await dns.lookup(host, { all: true, verbatim: true })
+  if (!addresses.length || addresses.some(row => blockedAddress(row.address))) throw new Error('Source private/loopback network access is blocked')
+  return target
+}
+
+function redirectedHeaders (headers, fromUrl, toUrl) {
+  const next = { ...(headers || {}) }
+  if (new URL(fromUrl).origin === new URL(toUrl).origin) return next
+  const sensitive = /^(?:authorization|proxy-authorization|cookie2?|api-key|x-api-key|x-appsecret|x-app-secret)$/i
+  Object.keys(next).forEach(key => {
+    if (sensitive.test(key)) delete next[key]
+  })
+  return next
+}
+
 class NativeHttpClient {
   constructor () {
     this.cookies = new Map()
@@ -111,7 +157,8 @@ class NativeHttpClient {
     this.cookies.set(host, jar)
   }
 
-  request (method, inputUrl, body, options = {}, redirects = 0) {
+  async request (method, inputUrl, body, options = {}, redirects = 0) {
+    await assertWorkerTarget(inputUrl)
     return new Promise((resolve, reject) => {
       let target
       try {
@@ -158,7 +205,12 @@ class NativeHttpClient {
           const redirected = new URL(location, target).href
           const nextMethod = status === 303 ? 'GET' : method
           const nextBody = status === 303 ? undefined : payload
-          this.request(nextMethod, redirected, nextBody, options, redirects + 1).then(resolve, reject)
+          const nextOptions = { ...options, headers: redirectedHeaders(options.headers, target.href, redirected) }
+          if (status === 303 && nextOptions.headers) {
+            delete nextOptions.headers['Content-Length']
+            delete nextOptions.headers['content-length']
+          }
+          this.request(nextMethod, redirected, nextBody, nextOptions, redirects + 1).then(resolve, reject)
           return
         }
         const chunks = []

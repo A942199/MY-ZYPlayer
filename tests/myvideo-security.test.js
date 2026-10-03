@@ -1,12 +1,16 @@
 'use strict'
 
 const assert = require('assert')
+const http = require('http')
+const path = require('path')
 const {
   assertPublicHttpTarget,
   isBlockedAddress
 } = require('../src/main/security/network-target')
 const {
   NativeHttpClient,
+  SourceWorker,
+  RuntimeManager,
   dynamicCodePolicy,
   runtimeIdentity,
   sha256Text
@@ -53,6 +57,19 @@ async function main () {
     'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'
   )
 
+  const pinnedScript = 'async function getConfig(){ return jsonify({title:"pinned"}) }'
+  const pinManager = new RuntimeManager({
+    lookup: async () => [{ address: '93.184.216.34', family: 4 }],
+    loader: {
+      get: async url => url.endsWith('/TV.json')
+        ? { status: 200, url, data: [{ type: 3, key: 'pinned', api: 'csp_pinned', ext: 'https://public.example/source.js' }] }
+        : { status: 200, url, data: pinnedScript }
+    }
+  })
+  const pinnedConfig = await pinManager.loadConfig('https://public.example/TV.json')
+  assert.strictEqual(pinnedConfig[0].sha256, sha256Text(pinnedScript), 'Config import must pin remote source scripts before they are stored')
+  assert.strictEqual(pinnedConfig[0].integrityRequired, true)
+
   const source = {
     key: 'source-a',
     ext: 'https://public.example/source.js',
@@ -93,6 +110,41 @@ async function main () {
     'https://public.example/start',
     'http://127.0.0.1/private'
   ])
+
+  let redirectedHeaders = null
+  let redirectStep = 0
+  const redirectClient = new NativeHttpClient({
+    assertTarget: async raw => new URL(String(raw)),
+    requestImpl: async config => {
+      redirectStep++
+      if (redirectStep === 1) {
+        return { status: 302, headers: { location: 'https://other.example/target' }, data: '', request: {} }
+      }
+      redirectedHeaders = config.headers
+      return { status: 200, headers: {}, data: 'ok', request: {} }
+    }
+  })
+  await redirectClient.get('https://origin.example/start', { headers: { Authorization: 'Bearer secret', Cookie: 'sid=secret', 'X-Normal': 'keep' } })
+  assert.strictEqual(redirectedHeaders.Authorization, undefined, 'Cross-origin redirects must strip Authorization')
+  assert.strictEqual(redirectedHeaders.Cookie, undefined, 'Cross-origin redirects must strip Cookie')
+  assert.strictEqual(redirectedHeaders['X-Normal'], 'keep')
+
+  const localServer = http.createServer((req, res) => res.end('local-secret'))
+  await new Promise(resolve => localServer.listen(0, '127.0.0.1', resolve))
+  const workerPath = path.resolve(__dirname, '../src/main/myvideo/runtime.worker.js')
+  const modulePath = path.resolve(__dirname, '../node_modules')
+  const sourceCode = `async function getConfig(){ return await $fetch.get('http://127.0.0.1:${localServer.address().port}/private') }`
+  const sourceWorker = new SourceWorker(
+    { key: 'private-network-test', name: 'private-network-test', ext: 'https://public.example/source.js', network: 'native' },
+    sourceCode,
+    { workerPath, modulePath, callTimeout: 2500 }
+  )
+  try {
+    await expectReject(sourceWorker.call('getConfig'), /private|loopback|blocked|network/i)
+  } finally {
+    sourceWorker.terminate()
+    await new Promise(resolve => localServer.close(resolve))
+  }
 
   console.log('MyVideo source security tests passed')
 }

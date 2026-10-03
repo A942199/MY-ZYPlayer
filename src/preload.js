@@ -62,7 +62,9 @@ const api = Object.freeze({
   }),
   playback: Object.freeze({
     setHeaders: payload => invoke('myvideo:set-playback-headers', payload),
-    clearHeaders: payload => invoke('playback:clear-headers', payload)
+    clearHeaders: payload => invoke('playback:clear-headers', payload),
+    prepareProxy: payload => invoke('playback:prepare-proxy', payload),
+    releaseProxy: payload => invoke('playback:release-proxy', payload)
   }),
   media: Object.freeze({
     resolveDanmaku: payload => invoke('media-enhancement:danmaku-resolve', payload),

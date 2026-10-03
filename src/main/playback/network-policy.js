@@ -17,6 +17,16 @@ function defaultPathPrefix (url) {
   return normalizePathPrefix(pathname.slice(0, slash + 1) || '/')
 }
 
+function setHeaderCaseInsensitive (headers, name, value) {
+  const out = { ...(headers || {}) }
+  const target = String(name).toLowerCase()
+  Object.keys(out).forEach(key => {
+    if (String(key).toLowerCase() === target) delete out[key]
+  })
+  out[target] = value
+  return out
+}
+
 function createPlaybackNetworkPolicy ({ now = Date.now, defaultTtlMs = DEFAULT_TTL_MS } = {}) {
   const scopes = new Map()
 
@@ -77,12 +87,10 @@ function createPlaybackNetworkPolicy ({ now = Date.now, defaultTtlMs = DEFAULT_T
 
   function applyResponse (url, responseHeaders = {}) {
     if (!matchingScope(url)) return responseHeaders
-    return {
-      ...(responseHeaders || {}),
-      'access-control-allow-origin': ['*'],
-      'access-control-allow-headers': ['*'],
-      'access-control-expose-headers': ['*']
-    }
+    let out = setHeaderCaseInsensitive(responseHeaders, 'access-control-allow-origin', ['*'])
+    out = setHeaderCaseInsensitive(out, 'access-control-allow-headers', ['*'])
+    out = setHeaderCaseInsensitive(out, 'access-control-expose-headers', ['*'])
+    return out
   }
 
   return {

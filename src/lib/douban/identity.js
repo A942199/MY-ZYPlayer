@@ -1,6 +1,6 @@
 'use strict'
 
-const MATCH_THRESHOLD = 100
+const MATCH_THRESHOLD = 85
 const GENERIC_EPISODE_LABELS = new Set([
   '',
   '立即播放',
@@ -61,6 +61,12 @@ function tmdbValue (value) {
   return String(raw).trim()
 }
 
+function doubanIdValue (value) {
+  const raw = value && (value.doubanId ?? value.douban_id ?? value.id)
+  if (raw === undefined || raw === null || raw === '') return ''
+  return String(raw).trim()
+}
+
 function yearValue (value) {
   const match = String(value || '').match(/(?:19|20)\d{2}/)
   return match ? Number(match[0]) : null
@@ -76,6 +82,33 @@ function overlap (left, right) {
   if (!a.size || !b.size) return false
   for (const item of a) if (b.has(item)) return true
   return false
+}
+
+function titleValues (value) {
+  if (!value || typeof value !== 'object') return []
+  const aliases = Array.isArray(value.aliases)
+    ? value.aliases
+    : [value.aliases, value.alias, value.vod_alias]
+  const rows = [
+    value.name,
+    value.title,
+    value.vod_name,
+    value.originalTitle,
+    value.original_title,
+    value.vod_en,
+    value.vod_sub,
+    ...aliases
+  ]
+  const out = []
+  for (const row of rows) {
+    if (!row) continue
+    const text = typeof row === 'object' ? (row.name || row.title || row.value || '') : row
+    String(text).split(/[|｜]/).forEach(part => {
+      const normalized = normalizeTitle(part)
+      if (normalized && !out.includes(normalized)) out.push(normalized)
+    })
+  }
+  return out
 }
 
 function bigrams (value) {
@@ -101,9 +134,9 @@ function inferKind (detail) {
   if (['movie', 'film'].includes(explicit)) return 'movie'
   const episodeCount = Number(detail?.episodeCount)
   if (Number.isFinite(episodeCount) && episodeCount > 1) return 'tv'
-  const type = String(detail?.type || detail?.type_name || '')
-  if (/电视剧|连续剧|剧集|动漫|动画|综艺|tv/i.test(type)) return 'tv'
-  if (/电影|movie|film/i.test(type)) return 'movie'
+  const type = String(detail?.type || detail?.type_name || detail?.vod_class || '')
+  if (/电影|影片|劇場版|剧场版|movie|film/i.test(type)) return 'movie'
+  if (/电视剧|電視劇|连续剧|連續劇|剧集|劇集|番剧|番劇|动画剧集|動畫劇集|动漫剧集|動漫劇集|综艺|綜藝|\btv\b|series|show/i.test(type)) return 'tv'
 
   const lines = Array.isArray(detail?.fullList) ? detail.fullList : []
   for (const line of lines) {
@@ -119,32 +152,50 @@ function inferKind (detail) {
   return ''
 }
 
+function moviePlaybackEvidence (detail) {
+  const lines = Array.isArray(detail?.fullList) ? detail.fullList : []
+  let entries = 0
+  let episodic = 0
+  let movieLike = 0
+  const movieLabel = /^(?:正片|本篇|feature|movie|film|hd(?:中字|国语|國語)?|bd|蓝光|藍光|4k|uhd|超清|高清|1080p?|720p?|原盘|原盤)$/i
+  for (const line of lines) {
+    const rows = Array.isArray(line?.list) ? line.list : []
+    for (const entry of rows) {
+      const label = String(entry || '').split('$')[0].trim()
+      if (!label) continue
+      entries++
+      if (!genericEpisodeLabel(label) && episodeValue({ episodeLabel: label })) episodic++
+      if (movieLabel.test(label.replace(/\s+/g, ''))) movieLike++
+    }
+  }
+  return entries > 0 && movieLike > episodic
+}
+
 function rejectedMatch (exactTitle, reasons, reason) {
   return { score: 0, accepted: false, exactTitle, reasons: [...reasons, reason] }
 }
 
 function scoreIdentity (identity, candidate = {}, detail = {}) {
-  const queryTitles = [
-    identity?.title,
-    identity?.originalTitle,
-    ...(Array.isArray(identity?.aliases) ? identity.aliases : [])
-  ].map(normalizeTitle).filter(Boolean)
-  const candidateTitle = normalizeTitle(detail?.name || detail?.vod_name || candidate?.name || candidate?.vod_name)
-  if (!candidateTitle || !queryTitles.length) return { score: 0, accepted: false, exactTitle: false, reasons: ['missing_title'] }
+  const queryTitles = titleValues(identity)
+  const candidateTitles = [...new Set([...titleValues(detail), ...titleValues(candidate)])]
+  if (!candidateTitles.length || !queryTitles.length) return { score: 0, accepted: false, exactTitle: false, reasons: ['missing_title'] }
 
   let score = 0
   const reasons = []
-  const exactTitle = queryTitles.includes(candidateTitle)
+  const exactTitle = queryTitles.some(title => candidateTitles.includes(title))
   if (exactTitle) {
-    score += 90
-    reasons.push('title_primary_exact')
+    score += 82
+    reasons.push('title_exact')
   } else {
-    const best = Math.max(...queryTitles.map(title => similarity(title, candidateTitle)))
+    let best = 0
+    for (const wanted of queryTitles) {
+      for (const got of candidateTitles) best = Math.max(best, similarity(wanted, got))
+    }
     if (best >= 0.88) {
-      score += 78
+      score += 66
       reasons.push('title_fuzzy_strong')
     } else if (best >= 0.72) {
-      score += 64
+      score += 52
       reasons.push('title_fuzzy')
     } else {
       return rejectedMatch(false, reasons, 'title_mismatch')
@@ -155,7 +206,7 @@ function scoreIdentity (identity, candidate = {}, detail = {}) {
   const candidateYear = yearValue(detail?.year || detail?.vod_year || candidate?.year || candidate?.vod_year)
   if (queryYear && candidateYear) {
     if (queryYear !== candidateYear) return rejectedMatch(exactTitle, reasons, 'year_mismatch')
-    score += 14
+    score += 8
     reasons.push('year_exact')
   }
 
@@ -163,7 +214,7 @@ function scoreIdentity (identity, candidate = {}, detail = {}) {
   const candidateTmdb = tmdbValue(detail) || tmdbValue(candidate)
   if (queryTmdb && candidateTmdb) {
     if (queryTmdb !== candidateTmdb) return rejectedMatch(exactTitle, reasons, 'tmdb_mismatch')
-    score += 20
+    score += 10
     reasons.push('tmdb_exact')
   }
 
@@ -171,57 +222,68 @@ function scoreIdentity (identity, candidate = {}, detail = {}) {
   const candidateSeason = seasonValue(detail) || seasonValue(candidate)
   if (querySeason && candidateSeason) {
     if (querySeason !== candidateSeason) return rejectedMatch(exactTitle, reasons, 'season_mismatch')
-    score += 10
+    score += 5
     reasons.push('season_exact')
-  }
-
-  const queryEpisode = episodeValue(identity)
-  const candidateEpisode = episodeValue(detail) || episodeValue(candidate)
-  if (queryEpisode && candidateEpisode) {
-    if (queryEpisode !== candidateEpisode) return rejectedMatch(exactTitle, reasons, 'episode_mismatch')
-    score += 10
-    reasons.push('episode_exact')
   }
 
   const queryKind = String(identity?.doubanKind || identity?.mediaType || identity?.kind || '').toLowerCase()
   const candidateKind = inferKind(detail) || inferKind(candidate)
   if (queryKind && queryKind !== 'unknown' && candidateKind) {
     if (queryKind !== candidateKind) return rejectedMatch(exactTitle, reasons, 'kind_mismatch')
-    score += 8
+    score += 5
     reasons.push('kind_exact')
   }
 
+  if (queryKind === 'movie' && !candidateKind && moviePlaybackEvidence(detail)) {
+    score += 3
+    reasons.push('movie_playback_shape')
+  }
+
   if (overlap((identity?.directors || []).join(' '), detail?.director || detail?.directors?.join(' '))) {
-    score += 8
+    score += 4
     reasons.push('director_overlap')
   }
   if (overlap((identity?.casts || []).join(' '), detail?.actor || detail?.casts?.join(' '))) {
-    score += 6
+    score += 3
     reasons.push('cast_overlap')
   }
 
+  if (overlap((identity?.regions || []).join(' '), detail?.area || detail?.regions?.join(' '))) {
+    score += 1
+    reasons.push('region_overlap')
+  }
+  if (overlap((identity?.languages || []).join(' '), detail?.language || detail?.languages?.join(' '))) {
+    score += 1
+    reasons.push('language_overlap')
+  }
+
+  const accuracy = Math.min(100, Math.max(0, Math.round(score)))
+  const requiredAccuracy = (!queryKind || queryKind === 'unknown') && candidateKind
+    ? MATCH_THRESHOLD + 10
+    : MATCH_THRESHOLD
+
   return {
-    score,
-    accepted: score >= MATCH_THRESHOLD,
+    score: accuracy,
+    accuracy,
+    accepted: accuracy >= requiredAccuracy,
     exactTitle,
     reasons,
     candidateKind,
     candidateYear,
     candidateSeason,
-    candidateEpisode,
     candidateTmdb
   }
 }
 
 function identityKey (identity) {
   return [
-    'v2',
+    'v3',
+    doubanIdValue(identity),
     String(identity?.doubanKind || identity?.mediaType || identity?.kind || 'unknown'),
     tmdbValue(identity),
     normalizeTitle(identity?.title),
     yearValue(identity?.year) || '',
-    seasonValue(identity) || '',
-    episodeValue(identity) || ''
+    seasonValue(identity) || ''
   ].join('|')
 }
 
@@ -232,6 +294,7 @@ module.exports = {
   seasonValue,
   episodeValue,
   tmdbValue,
+  doubanIdValue,
   genericEpisodeLabel,
   similarity,
   inferKind,

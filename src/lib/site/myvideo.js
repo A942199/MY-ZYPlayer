@@ -40,13 +40,43 @@ function decodePayload (value, prefix) {
   }
 }
 
+function cardYear (card = {}) {
+  return card.vod_year ?? card.year ?? card.vod_pubdate ?? card.pubdate ?? card.release_date ?? card.releaseDate ?? ''
+}
+
+function cardType (card = {}) {
+  return card.type_name ?? card.type ?? card.vod_class ?? card.class_name ?? card.class ?? ''
+}
+
+function cardLanguage (card = {}) {
+  return card.vod_lang ?? card.language ?? card.lang ?? ''
+}
+
+function cardDoubanId (card = {}) {
+  return card.vod_douban_id ?? card.douban_id ?? card.doubanId ?? card.douban ?? ''
+}
+
+function cardTmdbId (card = {}) {
+  return card.vod_tmdb_id ?? card.tmdb_id ?? card.tmdbId ?? card.tmdb ?? ''
+}
+
 function encodedId (card) {
   return ID_PREFIX + encodePayload({
     id: String(card.vod_id ?? card.id ?? ''),
     ext: card.ext || {},
     name: card.vod_name ?? card.name ?? '',
     pic: card.vod_pic ?? card.pic ?? '',
-    note: card.vod_remarks ?? card.note ?? ''
+    note: card.vod_remarks ?? card.note ?? '',
+    year: cardYear(card),
+    type: cardType(card),
+    actor: card.vod_actor ?? card.actor ?? '',
+    director: card.vod_director ?? card.director ?? '',
+    area: card.vod_area ?? card.area ?? '',
+    language: cardLanguage(card),
+    doubanId: cardDoubanId(card),
+    tmdbId: cardTmdbId(card),
+    originalTitle: card.originalTitle ?? card.original_title ?? card.vod_en ?? '',
+    aliases: card.aliases ?? card.vod_alias ?? card.alias ?? card.vod_sub ?? ''
   })
 }
 
@@ -57,10 +87,16 @@ function normalizeCard (card) {
     name: card.vod_name ?? card.name ?? '',
     pic: card.vod_pic ?? card.pic ?? '',
     note: card.vod_remarks ?? card.note ?? '',
-    year: card.vod_year ?? card.year ?? '',
-    type: card.type_name ?? card.type ?? '',
+    year: cardYear(card),
+    type: cardType(card),
     actor: card.vod_actor ?? card.actor ?? '',
     director: card.vod_director ?? card.director ?? '',
+    area: card.vod_area ?? card.area ?? '',
+    language: cardLanguage(card),
+    doubanId: cardDoubanId(card),
+    tmdbId: cardTmdbId(card),
+    originalTitle: card.originalTitle ?? card.original_title ?? card.vod_en ?? '',
+    aliases: card.aliases ?? card.vod_alias ?? card.alias ?? card.vod_sub ?? '',
     des: card.vod_content ?? card.des ?? '',
     dl: {
       dd: {
@@ -79,7 +115,10 @@ async function runtimeCall (site, method, args) {
       api: site.api,
       ext: site.ext,
       network: site.network || 'native',
-      config: site.extConfig || site.config || {}
+      config: site.extConfig || site.config || {},
+      sha256: site.sha256 || '',
+      integrity: site.integrity || null,
+      integrityRequired: site.integrityRequired === true
     },
     method,
     args
@@ -174,11 +213,16 @@ async function detail (site, encoded) {
     name: meta.vod_name || meta.name || card.name || '',
     pic: meta.vod_pic || meta.pic || card.pic || '',
     note: meta.vod_remarks || meta.note || card.note || '',
-    type: meta.type_name || meta.type || '',
-    actor: meta.vod_actor || meta.actor || '',
-    director: meta.vod_director || meta.director || '',
-    area: meta.vod_area || meta.area || '',
-    year: meta.vod_year || meta.year || '',
+    type: cardType(meta) || card.type || '',
+    actor: meta.vod_actor || meta.actor || card.actor || '',
+    director: meta.vod_director || meta.director || card.director || '',
+    area: meta.vod_area || meta.area || card.area || '',
+    year: cardYear(meta) || card.year || '',
+    language: cardLanguage(meta) || card.language || '',
+    doubanId: cardDoubanId(meta) || card.doubanId || '',
+    tmdbId: cardTmdbId(meta) || card.tmdbId || '',
+    originalTitle: meta.originalTitle || meta.original_title || meta.vod_en || card.originalTitle || '',
+    aliases: meta.aliases || meta.vod_alias || meta.alias || meta.vod_sub || card.aliases || '',
     des: meta.vod_content || meta.des || '',
     dl: { dd: dd.length === 1 ? dd[0] : dd },
     fullList: groups
@@ -285,6 +329,7 @@ function importSites (payload, configUrl) {
 module.exports = {
   isSource,
   buildTabRequestArgs,
+  normalizeCard,
   normalizeTabs,
   classes,
   page,

@@ -216,10 +216,12 @@ export default {
       if (res) {
         this.info = res
         this.$set(this.info, 'rate', this.DetailCache[cacheKey].rate || '')
-        this.videoFlag = this.videoFlag || res.fullList[0].flag
-        this.videoList = res.fullList[0].list
-        this.videoFullList = res.fullList
+        const groups = Array.isArray(res.fullList) ? res.fullList.filter(group => group && Array.isArray(group.list) && group.list.length) : []
+        this.videoFullList = groups
+        this.videoList = groups.length ? groups[0].list : []
+        if (groups.length) this.videoFlag = this.videoFlag || groups[0].flag
         this.loading = false
+        if (!groups.length) this.$message.warning('当前源没有返回可播放列表')
         if (!this.info.rate) {
           await this.getDoubanRate()
           this.DetailCache[cacheKey] = this.info

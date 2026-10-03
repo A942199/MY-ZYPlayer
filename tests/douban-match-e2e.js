@@ -14,6 +14,7 @@ const cdpPort = 9242
 const profile = path.join(os.tmpdir(), 'my-zyplayer-douban-match-' + process.pid)
 const subjectYears = new Map()
 let cmsHitTitle = ''
+let doubanListRequests = 0
 const mockSubjects = [
   {
     item: { id: '9000001', title: '年会不能停！2', url: 'https://movie.douban.com/subject/9000001/', cover: '', rate: '8.1', kind: 'movie' },
@@ -23,6 +24,12 @@ const mockSubjects = [
     item: { id: '9000002', title: '罗斯', url: 'https://movie.douban.com/subject/9000002/', cover: '', rate: '7.7', kind: 'movie' },
     detail: { id: '9000002', title: '罗斯', originalTitle: 'Rose', year: 2025, kind: 'movie', director: '测试导演乙', cast: '测试演员乙' }
   }
+]
+const sortSubjects = [
+  { id: '9100001', title: '排序测试 8.9', url: 'https://movie.douban.com/subject/9100001/', cover: '', rate: '8.9' },
+  { id: '9100002', title: '排序测试 9.2', url: 'https://movie.douban.com/subject/9100002/', cover: '', rate: '9.2' },
+  { id: '9100003', title: '排序测试无评分', url: 'https://movie.douban.com/subject/9100003/', cover: '', rate: '' },
+  { id: '9100004', title: '排序测试 9.4', url: 'https://movie.douban.com/subject/9100004/', cover: '', rate: '9.4' }
 ]
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
@@ -43,6 +50,11 @@ function startMockServer () {
       const target = new URL(req.url, origin)
 
       if (target.pathname === '/j/search_subjects') {
+        doubanListRequests++
+        if (target.searchParams.get('tag') === '排序测试') {
+          json(res, { subjects: sortSubjects })
+          return
+        }
         json(res, {
           subjects: mockSubjects.map(row => ({
             id: row.item.id,
@@ -60,6 +72,16 @@ function startMockServer () {
 
       if (target.pathname === '/search') {
         const query = target.searchParams.get('q') || ''
+        if (query === '竞态A' || query === '竞态B') {
+          const delay = query === '竞态A' ? 600 : 30
+          setTimeout(() => {
+            const id = query === '竞态A' ? '9200001' : '9200002'
+            const body = Buffer.from('<html><body><div class="result"><h3><a href="https://movie.douban.com/subject/' + id + '/">' + query + '</a></h3><span class="subject-cast">测试导演 / 测试演员 / 日本 / 日语 / 2026</span></div></body></html>')
+            res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Length': body.length })
+            res.end(body)
+          }, delay)
+          return
+        }
         const rows = mockSubjects.filter(row => !query || row.detail.title === query)
         const body = Buffer.from('<html><body>' + rows.map(row =>
           '<div class="result"><h3><a href="https://movie.douban.com/subject/' + row.item.id + '/">' + row.detail.title + '</a></h3>' +
@@ -284,7 +306,10 @@ async function main () {
       if (ready) break
       await sleep(250)
     }
-    await sleep(4000)
+    await sleep(1200)
+    assert.strictEqual(doubanListRequests, 0, 'Hidden Douban page must not perform startup network requests')
+    await evaluate("document.querySelector('#app').__vue__.$store.commit('SET_VIEW', 'Douban'); true")
+    await sleep(1500)
 
     const subjects = JSON.parse(await evaluate(`(async () => {
       const list = await window.myzy.douban.list({ kind: 'movie', tag: '热门', limit: 4 })
@@ -379,6 +404,44 @@ async function main () {
       return walk(root)
     })()`
 
+    const rankedDisplay = JSON.parse(await evaluate(`(async () => {
+      const component = ${doubanExpression}
+      const originalTag = component.sections[0].tag
+      component.sectionKey = 'movie'
+      component.sections[0].tag = '排序测试'
+      component.sort = 'rank'
+      await component.load()
+      const rows = component.list.map(item => ({ id: item.id, rate: item.rate }))
+      component.sections[0].tag = originalTag
+      return JSON.stringify(rows)
+    })()`))
+    assert.deepStrictEqual(
+      rankedDisplay.map(item => item.id),
+      ['9100004', '9100002', '9100001', '9100003'],
+      'Packaged Douban high-score view is not numerically sorted with unrated items last'
+    )
+
+    const searchRace = JSON.parse(await evaluate(`(async () => {
+      const component = ${doubanExpression}
+      component.searchText = '竞态A'
+      const first = component.search()
+      await new Promise(resolve => setTimeout(resolve, 50))
+      component.searchText = '竞态B'
+      const second = component.search()
+      await Promise.all([first, second])
+      return JSON.stringify({ query: component.searchText, title: component.list[0] && component.list[0].title })
+    })()`))
+    assert.deepStrictEqual(searchRace, { query: '竞态B', title: '竞态B' }, 'Older search responses must not overwrite newer results')
+    await evaluate(`(async () => {
+      const component = ${doubanExpression}
+      component.searchText = ''
+      component.searchMode = false
+      component.sort = 'rank'
+      component.sectionKey = 'movie'
+      await component.load()
+      return true
+    })()`)
+
     async function runSubject (row) {
       const payload = JSON.stringify(row.item)
       await evaluate(`(async () => {
@@ -388,7 +451,7 @@ async function main () {
       })()`)
       let state = null
       let sawEarlyFirstPlayable = false
-      for (let index = 0; index < 160; index++) {
+      for (let index = 0; index < 240; index++) {
         const raw = await evaluate(`(() => {
           const component = ${doubanExpression}
           return JSON.stringify(component.scanState)
@@ -405,14 +468,14 @@ async function main () {
     const cmsRun = await runSubject(subjects[0])
     const cmsState = cmsRun.state
     assert.strictEqual(cmsState.status, 'complete')
-    assert(cmsState.top5.length > 0, 'CMS scenario returned no playable provider')
-    assert.strictEqual(cmsState.top5[0].providerKind, 'CMS')
+    assert(cmsState.top5.length >= 4, 'Whole-work ranking did not retain all qualified providers: ' + JSON.stringify(cmsState.top5.map(row => ({ name: row.site && row.site.name, kind: row.providerKind, accuracy: row.accuracy, finalScore: row.finalScore }))))
     assert.strictEqual(cmsState.cmsCompleted, 2, 'JSON/XML CMS phase did not exhaust both CMS providers')
-    assert(cmsState.top5.every(row => row.providerKind === 'CMS'), 'CMS hit scenario admitted a BD provider')
+    assert.strictEqual(cmsState.bdCompleted, 2, 'BD/CSP providers were not included in the same whole-work ranking')
     assert(cmsState.top5.some(row => row.site.name === 'CMS E2E'), 'JSON CMS was not admitted')
     assert(cmsState.top5.some(row => row.site.name === 'CMS E2E XML'), 'XML CMS was not admitted')
-    assert.strictEqual(cmsState.bdCompleted, 0, 'BD fallback ran despite a verified CMS match')
-    assert.strictEqual(cmsState.firstPlayable.providerKind, 'CMS')
+    assert(cmsState.top5.some(row => row.providerKind === 'BD'), 'BD/CSP provider was missing from combined ranking')
+    assert(cmsState.top5.every(row => Number.isFinite(row.finalScore) && Number.isFinite(row.accuracy) && Number.isFinite(row.qualityScore) && Number.isFinite(row.smoothnessScore) && Number.isFinite(row.stabilityScore)), 'Composite source score breakdown is incomplete')
+    for (let index = 1; index < cmsState.top5.length; index++) assert(cmsState.top5[index - 1].finalScore >= cmsState.top5[index].finalScore, 'Top5 is not sorted by composite score')
 
     await replaceSites([cmsSite(), cmsXmlSite(), bdSite('fast', 'fast'), bdSite('slow', 'slow')])
     const bdRun = await runSubject(subjects[1])
@@ -421,9 +484,9 @@ async function main () {
     assert(bdState.top5.length >= 2, 'BD exhaustive scan did not retain both playable providers')
     assert.strictEqual(bdState.top5[0].providerKind, 'BD')
     assert.strictEqual(bdState.cmsCompleted, 2)
-    assert.strictEqual(bdState.bdCompleted, 2, 'BD fallback stopped before exhaustive completion')
+    assert.strictEqual(bdState.bdCompleted, 2, 'BD/CSP exhaustive ranking stopped before completion')
     assert.strictEqual(bdState.firstPlayable.providerKind, 'BD')
-    assert.strictEqual(bdRun.sawEarlyFirstPlayable, true, 'First playable was not surfaced before exhaustive BD completion')
+    assert.strictEqual(bdRun.sawEarlyFirstPlayable, true, 'First playable was not surfaced before exhaustive ranking completed')
 
     console.log(JSON.stringify({
       cms: {
@@ -433,7 +496,7 @@ async function main () {
         cmsCompleted: cmsState.cmsCompleted,
         bdCompleted: cmsState.bdCompleted
       },
-      fallback: {
+      bdOnly: {
         title: subjects[1].detail.title,
         provider: bdState.top5[0].site.name,
         cmsCompleted: bdState.cmsCompleted,

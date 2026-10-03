@@ -36,6 +36,19 @@ assert.deepStrictEqual(responseHeaders['access-control-allow-origin'], ['*'])
 assert.deepStrictEqual(responseHeaders['access-control-allow-headers'], ['*'])
 assert.deepStrictEqual(responseHeaders['access-control-expose-headers'], ['*'])
 
+const existingCors = policy.applyResponse(
+  'https://media.example.com/show/ep1/master.m3u8',
+  {
+    'Access-Control-Allow-Origin': ['*'],
+    'ACCESS-CONTROL-ALLOW-HEADERS': ['Range'],
+    'content-type': ['application/vnd.apple.mpegurl']
+  }
+)
+assert.deepStrictEqual(existingCors['access-control-allow-origin'], ['*'])
+assert.deepStrictEqual(existingCors['access-control-allow-headers'], ['*'])
+assert.strictEqual(Object.keys(existingCors).filter(key => key.toLowerCase() === 'access-control-allow-origin').length, 1, 'CORS allow-origin must not be duplicated with different casing')
+assert.strictEqual(Object.keys(existingCors).filter(key => key.toLowerCase() === 'access-control-allow-headers').length, 1, 'CORS allow-headers must not be duplicated with different casing')
+
 const unrelatedResponse = { 'content-type': ['video/mp2t'] }
 assert.deepStrictEqual(
   policy.applyResponse('https://media.example.com/show/ep2/seg.ts', unrelatedResponse),

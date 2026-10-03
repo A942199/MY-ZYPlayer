@@ -36,6 +36,16 @@ function normalizeHeaders (headers) {
   return { ...headers }
 }
 
+function redirectHeaders (headers, fromUrl, toUrl) {
+  const next = normalizeHeaders(headers)
+  if (fromUrl.origin === toUrl.origin) return next
+  const sensitive = new Set(['authorization', 'cookie', 'cookie2', 'proxy-authorization'])
+  for (const key of Object.keys(next)) {
+    if (sensitive.has(key.toLowerCase())) delete next[key]
+  }
+  return next
+}
+
 function decodeBody (buffer, encoding) {
   try {
     if (String(encoding || '').includes('gzip')) return zlib.gunzipSync(buffer)
@@ -74,7 +84,11 @@ function requestBuffer (url, options = {}, redirects = 0) {
       const status = res.statusCode || 0
       if ([301, 302, 303, 307, 308].includes(status) && res.headers.location) {
         res.resume()
-        requestBuffer(new URL(res.headers.location, target).href, options, redirects + 1).then(resolve).catch(reject)
+        const nextTarget = new URL(res.headers.location, target)
+        requestBuffer(nextTarget.href, {
+          ...options,
+          headers: redirectHeaders(options.headers, target, nextTarget)
+        }, redirects + 1).then(resolve).catch(reject)
         return
       }
       const chunks = []
@@ -116,12 +130,15 @@ async function requestTextWithRetry (url, options = {}, attempts = 2) {
   let lastError
   for (let attempt = 0; attempt < attempts; attempt++) {
     try {
-      return await requestText(url, options)
+      const response = await requestText(url, options)
+      const retryableStatus = [408, 425, 429].includes(response.status) || (response.status >= 500 && response.status <= 599)
+      if (!retryableStatus || attempt + 1 >= attempts) return response
+      lastError = new Error('HTTP ' + response.status)
     } catch (error) {
       lastError = error
       if (attempt + 1 >= attempts) break
-      await new Promise(resolve => setTimeout(resolve, 350 * (attempt + 1)))
     }
+    await new Promise(resolve => setTimeout(resolve, 350 * (attempt + 1)))
   }
   throw lastError
 }
@@ -198,9 +215,8 @@ async function searchSubjects (payload = {}) {
       searchMeta: cast
     })
   })
-  const japaneseQuery = /[\u3040-\u30ff]/.test(text)
   const filtered = payload.japanOnly
-    ? list.filter(item => japaneseQuery || isLikelyJapaneseSearchText(item.searchMeta))
+    ? list.filter(item => /[\u3040-\u30ff]/.test(item.title) || isLikelyJapaneseSearchText(item.searchMeta))
     : list
   return {
     list: filtered.map(item => {
@@ -280,9 +296,12 @@ function uniqueStrings (values) {
     .filter((value, index, array) => array.indexOf(value) === index)
 }
 
-function subjectKind (payload, episodeCount) {
-  if (payload.kind === 'tv' || (episodeCount && episodeCount > 1)) return 'tv'
+function subjectKind (payload, episodeCount, info = '') {
+  if (payload.kind === 'tv' || (episodeCount && episodeCount >= 1)) return 'tv'
   if (payload.kind === 'movie') return 'movie'
+  const infoText = String(info || '')
+  if (/(?:^|\n)\s*(?:集数|季数|首播|单集片长)\s*:/m.test(infoText)) return 'tv'
+  if (/(?:^|\n)\s*(?:上映日期|片长)\s*:/m.test(infoText)) return 'movie'
   return 'unknown'
 }
 
@@ -348,7 +367,7 @@ async function subjectDetail (payload = {}, dependencies = {}) {
     const $ = cheerio.load(response.text)
     const info = $('#info').text().replace(/\r/g, '')
     const episodeCount = Number(infoValue(info, '集数')) || null
-    const kind = subjectKind(payload, episodeCount)
+    const kind = subjectKind(payload, episodeCount, info)
     const title = $('span[property="v:itemreviewed"]').first().text().trim() || titleHint
     return {
       id,
@@ -431,11 +450,83 @@ function firstMediaUri (manifest, baseUrl) {
   return ''
 }
 
+function mediaUris (manifest, baseUrl) {
+  const out = []
+  for (const raw of String(manifest || '').split(/\r?\n/)) {
+    const line = raw.trim()
+    if (!line || line.startsWith('#')) continue
+    try {
+      const url = new URL(line, baseUrl).href
+      if (!out.includes(url)) out.push(url)
+    } catch (error) {}
+  }
+  return out
+}
+
+function hlsVariants (manifest, baseUrl) {
+  const lines = String(manifest || '').split(/\r?\n/)
+  const out = []
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index].trim()
+    if (!line.startsWith('#EXT-X-STREAM-INF:')) continue
+    const attrs = line.slice('#EXT-X-STREAM-INF:'.length)
+    const bandwidthMatch = attrs.match(/(?:^|,)BANDWIDTH=(\d+)/i)
+    const resolutionMatch = attrs.match(/(?:^|,)RESOLUTION=(\d+)x(\d+)/i)
+    let uri = ''
+    for (let nextIndex = index + 1; nextIndex < lines.length; nextIndex++) {
+      const next = lines[nextIndex].trim()
+      if (!next) continue
+      if (next.startsWith('#')) break
+      uri = next
+      index = nextIndex
+      break
+    }
+    if (!uri) continue
+    try {
+      out.push({
+        url: new URL(uri, baseUrl).href,
+        bandwidth: bandwidthMatch ? Number(bandwidthMatch[1]) : 0,
+        width: resolutionMatch ? Number(resolutionMatch[1]) : 0,
+        height: resolutionMatch ? Number(resolutionMatch[2]) : 0
+      })
+    } catch (error) {}
+  }
+  return out
+}
+
+async function resolveHlsMediaManifest (manifest, manifestUrl, headers, timeout, depth = 0, inherited = {}) {
+  if (!manifest.includes('#EXT-X-STREAM-INF')) return { manifest, manifestUrl, ...inherited }
+  if (depth >= 3) return null
+  const variants = hlsVariants(manifest, manifestUrl).slice(0, 8)
+  for (const variant of variants) {
+    try {
+      const response = await requestText(variant.url, { timeout, maxBytes: 1024 * 1024, headers })
+      if (![200, 206].includes(response.status)) continue
+      const metadata = {
+        bandwidth: variant.bandwidth || inherited.bandwidth || 0,
+        width: variant.width || inherited.width || 0,
+        height: variant.height || inherited.height || 0
+      }
+      const nested = await resolveHlsMediaManifest(response.text, response.url, headers, timeout, depth + 1, metadata)
+      if (nested && firstMediaUri(nested.manifest, nested.manifestUrl)) return nested
+    } catch (error) {}
+  }
+  return null
+}
+
 async function probeUrl (payload = {}) {
   const url = String(payload.url || '').trim()
   if (!/^https?:\/\//i.test(url)) return { ok: false, code: 'INVALID_URL' }
   const headers = normalizeHeaders(payload.headers)
   const timeout = Math.min(6500, Math.max(1500, Number(payload.timeout) || 4500))
+  const started = Date.now()
+  const metrics = bytes => {
+    const elapsedMs = Math.max(1, Date.now() - started)
+    return {
+      elapsedMs,
+      throughputMbps: Math.round(((Number(bytes) || 0) * 8 / elapsedMs / 1000) * 100) / 100
+    }
+  }
   try {
     const first = await requestBuffer(url, {
       timeout,
@@ -448,18 +539,12 @@ async function probeUrl (payload = {}) {
     const isHls = /\.m3u8(?:$|[?#])/i.test(first.url) || contentType.includes('mpegurl') || text.includes('#EXTM3U')
     if (!isHls) {
       const direct = contentType.startsWith('video/') || /\.(?:mp4|m4v)(?:$|[?#])/i.test(first.url)
-      return { ok: direct && first.body.length > 0, kind: direct ? 'direct' : 'unknown', status: first.status, bytes: first.body.length }
+      return { ok: direct && first.body.length > 0, kind: direct ? 'direct' : 'unknown', status: first.status, bytes: first.body.length, ...metrics(first.body.length) }
     }
-    let manifest = text
-    let manifestUrl = first.url
-    if (manifest.includes('#EXT-X-STREAM-INF')) {
-      const nestedUrl = firstMediaUri(manifest, manifestUrl)
-      if (!nestedUrl) return { ok: false, code: 'HLS_NO_VARIANT' }
-      const nested = await requestText(nestedUrl, { timeout, maxBytes: 1024 * 1024, headers })
-      if (![200, 206].includes(nested.status)) return { ok: false, code: 'HLS_VARIANT_HTTP_' + nested.status }
-      manifest = nested.text
-      manifestUrl = nested.url
-    }
+    const resolvedManifest = await resolveHlsMediaManifest(text, first.url, headers, timeout)
+    if (!resolvedManifest) return { ok: false, code: 'HLS_NO_PLAYABLE_VARIANT' }
+    const manifest = resolvedManifest.manifest
+    const manifestUrl = resolvedManifest.manifestUrl
     const fragmentUrl = firstMediaUri(manifest, manifestUrl)
     if (!fragmentUrl) return { ok: false, code: 'HLS_NO_FRAGMENT' }
     const fragment = await requestBuffer(fragmentUrl, {
@@ -472,6 +557,10 @@ async function probeUrl (payload = {}) {
       kind: 'hls',
       status: fragment.status,
       bytes: fragment.body.length,
+      bandwidth: Number(resolvedManifest.bandwidth || 0),
+      width: Number(resolvedManifest.width || 0),
+      height: Number(resolvedManifest.height || 0),
+      ...metrics(fragment.body.length),
       manifestUrl,
       fragmentUrl
     }
@@ -480,12 +569,4 @@ async function probeUrl (payload = {}) {
   }
 }
 
-function registerDoubanIpc (ipcMain) {
-  ipcMain.handle('douban:list', (event, payload) => listSubjects(payload))
-  ipcMain.handle('douban:search', (event, payload) => searchSubjects(payload))
-  ipcMain.handle('douban:detail', (event, payload) => subjectDetail(payload))
-  ipcMain.handle('douban:image', (event, payload) => fetchImageData(payload))
-  ipcMain.handle('douban:probe', (event, payload) => probeUrl(payload))
-}
-
-module.exports = { listSubjects, searchSubjects, subjectDetail, fetchImageData, probeUrl, registerDoubanIpc }
+module.exports = { listSubjects, searchSubjects, subjectDetail, fetchImageData, probeUrl }

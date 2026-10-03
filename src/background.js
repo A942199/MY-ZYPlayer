@@ -13,9 +13,11 @@ const { createMainWindowWebPreferences } = require('./main/security/window-polic
 const { registerAppIpc } = require('./main/ipc/app-ipc')
 const { siteNetworkService } = require('./main/network/runtime')
 const { createSettingsSecretRuntime } = require('./main/settings/runtime')
+const { createPlaybackMediaProxy } = require('./main/playback/media-proxy')
 
 const isDevelopment = process.env.NODE_ENV !== 'production'
 let settingsSecretRuntime = null
+const playbackMediaProxy = createPlaybackMediaProxy()
 
 function requireSettingsSecretRuntime () {
   if (!settingsSecretRuntime) throw new Error('Settings secret runtime is unavailable')
@@ -88,7 +90,9 @@ registerAppIpc({
     },
     playback: {
       setHeaders: setPlaybackHeaders,
-      clearHeaders: clearPlaybackHeaderScope
+      clearHeaders: clearPlaybackHeaderScope,
+      prepareProxy: payload => playbackMediaProxy.prepare(payload),
+      releaseProxy: payload => ({ released: playbackMediaProxy.release(payload.scopeId) })
     },
     media: {
       resolveDanmaku: resolveDanmakuWithSecrets,
@@ -213,6 +217,7 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   stopLocalDanmuApi()
+  playbackMediaProxy.stop().catch(() => {})
 })
 
 app.on('activate', () => {

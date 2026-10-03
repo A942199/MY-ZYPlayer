@@ -1,6 +1,7 @@
 'use strict'
 
 const assert = require('assert')
+const http = require('http')
 const {
   DEFAULT_CONFIG,
   normalizeMediaEnhancementConfig,
@@ -12,8 +13,9 @@ const {
   isGenericFeatureLabel
 } = require('../src/lib/player/media-enhancement')
 const { romanizeKanaTitle, embeddedAllowed } = require('../src/lib/player/subtitle-controller')
+const { requestBuffer } = require('../src/main/media-enhancement/runtime')
 
-function main () {
+async function main () {
   const defaults = normalizeMediaEnhancementConfig()
   assert(defaults.providers && defaults.providers.danmaku && defaults.providers.subtitles)
   assert.strictEqual(defaults.danmakuEnabled, true)
@@ -109,7 +111,30 @@ function main () {
   assert.strictEqual(embeddedAllowed({ language: 'ja', label: '日本語' }), true)
   assert.strictEqual(embeddedAllowed({ language: 'en', label: 'English' }), false)
 
+  let leakedAuthorization = ''
+  const target = http.createServer((req, res) => {
+    leakedAuthorization = req.headers.authorization || ''
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end('{}')
+  })
+  await new Promise(resolve => target.listen(0, '127.0.0.1', resolve))
+  const redirect = http.createServer((req, res) => {
+    res.writeHead(302, { Location: 'http://127.0.0.1:' + target.address().port + '/target' })
+    res.end()
+  })
+  await new Promise(resolve => redirect.listen(0, '127.0.0.1', resolve))
+  try {
+    await requestBuffer('http://127.0.0.1:' + redirect.address().port + '/start', { headers: { Authorization: 'Bearer secret' } })
+    assert.strictEqual(leakedAuthorization, '', 'Media provider credentials must not cross redirect origins')
+  } finally {
+    await new Promise(resolve => redirect.close(resolve))
+    await new Promise(resolve => target.close(resolve))
+  }
+
   console.log('Media enhancement unit tests passed')
 }
 
-main()
+main().catch(error => {
+  console.error(error && error.stack || error)
+  process.exitCode = 1
+})
